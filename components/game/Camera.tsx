@@ -4,6 +4,8 @@ import { useEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { PerspectiveCamera } from "@react-three/drei";
 import { Vector3, type PerspectiveCamera as PerspectiveCameraImpl } from "three";
+import { sampleCameraShake } from "@/lib/game/camera/cameraShake";
+import { isHitstopActive } from "@/lib/game/combat/hitstop";
 import { playerFocus } from "@/lib/game/runtime";
 
 const LOOK_HEIGHT = 1.3;
@@ -91,34 +93,37 @@ export function Camera() {
       seeded.current = true;
     }
 
-    pivot.current.x = smoothDamp(
-      pivot.current.x,
-      target.x,
-      velocityX.current,
-      HORIZONTAL_SMOOTH_TIME,
-      dt,
-    );
-    pivot.current.y = smoothDamp(
-      pivot.current.y,
-      target.y,
-      velocityY.current,
-      VERTICAL_SMOOTH_TIME,
-      dt,
-    );
-    pivot.current.z = smoothDamp(
-      pivot.current.z,
-      target.z,
-      velocityZ.current,
-      HORIZONTAL_SMOOTH_TIME,
-      dt,
-    );
+    if (!isHitstopActive()) {
+      pivot.current.x = smoothDamp(
+        pivot.current.x,
+        target.x,
+        velocityX.current,
+        HORIZONTAL_SMOOTH_TIME,
+        dt,
+      );
+      pivot.current.y = smoothDamp(
+        pivot.current.y,
+        target.y,
+        velocityY.current,
+        VERTICAL_SMOOTH_TIME,
+        dt,
+      );
+      pivot.current.z = smoothDamp(
+        pivot.current.z,
+        target.z,
+        velocityZ.current,
+        HORIZONTAL_SMOOTH_TIME,
+        dt,
+      );
+    }
 
     const lookY = pivot.current.y + LOOK_HEIGHT;
     const horizontal = Math.cos(pitch.current) * DISTANCE;
+    const shake = sampleCameraShake(dt);
     camera.position.set(
-      pivot.current.x + Math.sin(yaw.current) * horizontal,
-      lookY + Math.sin(pitch.current) * DISTANCE,
-      pivot.current.z + Math.cos(yaw.current) * horizontal,
+      pivot.current.x + Math.sin(yaw.current) * horizontal + shake.x,
+      lookY + Math.sin(pitch.current) * DISTANCE + shake.y,
+      pivot.current.z + Math.cos(yaw.current) * horizontal + shake.z,
     );
     camera.lookAt(pivot.current.x, lookY, pivot.current.z);
   });

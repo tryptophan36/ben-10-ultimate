@@ -5,10 +5,20 @@ import { Canvas } from "@react-three/fiber";
 import { CuboidCollider, Physics, RigidBody, interactionGroups } from "@react-three/rapier";
 import { NeutralToneMapping } from "three";
 import { Camera } from "@/components/game/Camera";
+import { HitLocationMarker } from "@/components/game/combat/HitLocationMarker";
+import { HitstopClock } from "@/components/game/combat/HitstopClock";
+import { HitstopSim } from "@/components/game/combat/HitstopSim";
+import { ImpactBursts } from "@/components/game/combat/ImpactBursts";
+import { TrainingDummy } from "@/components/game/combat/TrainingDummy";
 import { DebugHud } from "@/components/game/DebugHud";
 import { Player } from "@/components/game/Player";
+import { resetCameraShake } from "@/lib/game/camera/cameraShake";
+import { resetFeelDebug } from "@/lib/game/combat/feelDebug";
+import { resetHitstop } from "@/lib/game/combat/hitstop";
+import { clearImpacts } from "@/lib/game/combat/impactVfx";
 import { GRAVITY, PHYSICS_TIMESTEP, physicsGroups } from "@/lib/game/physics";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { resetCombat } from "@/store/slices/combatSlice";
 import { endSession, markSessionActive } from "@/store/slices/gameSlice";
 
 function Lighting() {
@@ -66,9 +76,19 @@ export function GameCanvas() {
   const selectedCharacter = useAppSelector((state) => state.game.selectedCharacter);
 
   useEffect(() => {
+    resetHitstop();
+    resetCameraShake();
+    clearImpacts();
+    resetFeelDebug();
     dispatch(markSessionActive());
+    dispatch(resetCombat());
     return () => {
+      resetHitstop();
+      resetCameraShake();
+      clearImpacts();
+      resetFeelDebug();
       dispatch(endSession());
+      dispatch(resetCombat());
     };
   }, [dispatch]);
 
@@ -86,16 +106,21 @@ export function GameCanvas() {
         }}
       >
         <color attach="background" args={["#101218"]} />
+        <HitstopClock />
         <Camera />
         <Lighting />
+        <ImpactBursts />
+        <HitLocationMarker />
         <Suspense fallback={null}>
           <Physics
             gravity={WORLD_GRAVITY}
             timeStep={PHYSICS_TIMESTEP}
             colliders={false}
           >
+            <HitstopSim />
             <Ground />
             <Player key={selectedCharacter} />
+            <TrainingDummy />
           </Physics>
         </Suspense>
       </Canvas>

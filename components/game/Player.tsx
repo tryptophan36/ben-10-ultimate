@@ -11,6 +11,7 @@ import {
 } from "@react-three/rapier";
 import { Group, Mesh } from "three";
 import { clone as cloneSkinnedScene } from "three/addons/utils/SkeletonUtils.js";
+import { AttackHitboxes } from "@/components/game/combat/AttackHitboxes";
 import { useAnimationController } from "@/components/game/useAnimationController";
 import { useCharacterController } from "@/components/game/useCharacterController";
 import { characters } from "@/lib/game/characters";
@@ -56,6 +57,7 @@ export function Player() {
     colliderRef,
     visualRef,
     config: locomotion,
+    attackerId: character.id,
   });
 
   useLayoutEffect(() => {
@@ -71,28 +73,35 @@ export function Player() {
   useAnimationController({ actions, mixer, names, onOneShotFinished });
 
   return (
-    <RigidBody
-      ref={bodyRef}
-      name={character.id}
-      type="kinematicPosition"
-      colliders={false}
-      position={spawnPosition}
-      enabledRotations={LOCKED_ROTATIONS}
-      canSleep={false}
-      ccd
-      gravityScale={0}
-    >
-      <CapsuleCollider
-        ref={colliderRef}
-        args={capsuleArgs}
-        collisionGroups={FIGHTER_COLLISION_GROUPS}
-        friction={0}
-        restitution={0}
+    <>
+      <RigidBody
+        ref={bodyRef}
+        name={character.id}
+        type="kinematicPosition"
+        colliders={false}
+        position={spawnPosition}
+        enabledRotations={LOCKED_ROTATIONS}
+        canSleep={false}
+        ccd
+        gravityScale={0}
+      >
+        <CapsuleCollider
+          ref={colliderRef}
+          args={capsuleArgs}
+          collisionGroups={FIGHTER_COLLISION_GROUPS}
+          friction={0}
+          restitution={0}
+        />
+        <group ref={visualRef} name="character-visual" position={visualPosition}>
+          <primitive object={model} dispose={null} />
+        </group>
+      </RigidBody>
+      <AttackHitboxes
+        characterId={character.id}
+        model={model}
+        visualRef={visualRef}
       />
-      <group ref={visualRef} name="character-visual" position={visualPosition}>
-        <primitive object={model} dispose={null} />
-      </group>
-    </RigidBody>
+    </>
   );
 }
 

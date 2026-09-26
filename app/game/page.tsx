@@ -3,7 +3,7 @@ import { GameCanvas } from "@/components/game/GameCanvas";
 
 export const metadata: Metadata = {
   title: "Four Arms — Ben 10 Ultimate",
-  description: "Four Arms character controller",
+  description: "Four Arms versus a training dummy",
 };
 
 export default function GamePage() {

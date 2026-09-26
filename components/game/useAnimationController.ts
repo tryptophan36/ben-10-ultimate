@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useFrame } from "@react-three/fiber";
 import { LoopOnce, LoopRepeat, type AnimationAction, type AnimationMixer } from "three";
+import { bindHitstopMixer } from "@/lib/game/combat/hitstop";
+import { publishClipClock } from "@/lib/game/combat/runtime";
 import {
   DEFAULT_ANIMATION,
   isLoopingAnimation,
@@ -41,6 +44,29 @@ export function useAnimationController({
   useEffect(() => {
     onOneShotFinishedRef.current = onOneShotFinished;
   }, [onOneShotFinished]);
+
+  useEffect(() => {
+    bindHitstopMixer(mixer);
+    return () => {
+      bindHitstopMixer(null);
+    };
+  }, [mixer]);
+
+  useFrame(() => {
+    const action = activeActionRef.current;
+    if (!action) {
+      publishClipClock("", 0);
+      return;
+    }
+    const clip = action.getClip();
+    publishClipClock(clip.name, action.time);
+  });
+
+  useEffect(() => {
+    return () => {
+      publishClipClock("", 0);
+    };
+  }, []);
 
   useEffect(() => {
     dispatch(registerAnimations(names));

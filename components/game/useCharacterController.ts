@@ -10,6 +10,14 @@ import {
 } from "@react-three/rapier";
 import { Vector3, type Group } from "three";
 import { sameAnimationName } from "@/lib/game/animations";
+import { attackForAnimation } from "@/lib/game/combat/attacks";
+import { isHitstopActive } from "@/lib/game/combat/hitstop";
+import {
+  attackRuntime,
+  endAttackInstance,
+  stepAttackClock,
+} from "@/lib/game/combat/runtime";
+import { ATTACK_PHASE, type AttackPhase } from "@/lib/game/combat/types";
 import {
   animationForMovement,
   capsuleHalfExtent,
@@ -23,6 +31,7 @@ import {
 import { PHYSICS_TIMESTEP } from "@/lib/game/physics";
 import { playerFocus, publishControllerDebug } from "@/lib/game/runtime";
 import { useAppDispatch } from "@/store/hooks";
+import { setAttackState } from "@/store/slices/combatSlice";
 import { playAnimation } from "@/store/slices/gameSlice";
 import { useGameInput, type GameInputState } from "@/components/game/useGameInput";
 
@@ -49,6 +58,7 @@ type CharacterControllerOptions = {
   colliderRef: RefObject<RapierCollider | null>;
   visualRef: RefObject<Group | null>;
   config: LocomotionConfig;
+  attackerId: string;
 };
 
 function consumeAttack(
@@ -58,7 +68,10 @@ function consumeAttack(
   now: number,
 ): string | null {
   if (motion.attack) {
-    return null;
+    const current = attackForAnimation(motion.attack);
+    if (!current?.interruptible) {
+      return null;
+    }
   }
 
   const name = input.punch
@@ -86,6 +99,7 @@ export function useCharacterController({
   colliderRef,
   visualRef,
   config,
+  attackerId,
 }: CharacterControllerOptions) {
   const dispatch = useAppDispatch();
   const { world, rapier } = useRapier();
@@ -112,6 +126,10 @@ export function useCharacterController({
   const forward = useRef(new Vector3());
   const right = useRef(new Vector3());
   const wish = useRef(new Vector3());
+  const publishedCombat = useRef<{ attackId: string | null; phase: AttackPhase }>({
+    attackId: null,
+    phase: ATTACK_PHASE.idle,
+  });
 
   useEffect(() => {
     const controller = world.createCharacterController(config.colliderOffset);
@@ -136,6 +154,23 @@ export function useCharacterController({
       }
     };
   }, [config, world]);
+
+  const publishCombat = useCallback(
+    (attackId: string | null, phase: AttackPhase, activeFrames: number | null) => {
+      const published = publishedCombat.current;
+      if (
+        published.attackId === attackId &&
+        published.phase === phase &&
+        activeFrames === null
+      ) {
+        return;
+      }
+      published.attackId = attackId;
+      published.phase = phase;
+      dispatch(setAttackState({ attackId, phase, activeFrames }));
+    },
+    [dispatch],
+  );
 
   const requestAnimation = useCallback(
     (name: string) => {
@@ -163,7 +198,21 @@ export function useCharacterController({
     (clipName: string) => {
       const motion = motionRef.current;
       if (isAttackAnimation(config, clipName)) {
-        motion.attack = null;
+        if (
+          attackRuntime.phase === ATTACK_PHASE.startup ||
+          attackRuntime.phase === ATTACK_PHASE.active
+        ) {
+          return null;
+        }
+        if (attackRuntime.live) {
+          motion.attack = null;
+          endAttackInstance();
+        }
+      }
+
+      if (motion.attack) {
+        motion.lastAnimation = motion.attack;
+        return motion.attack;
       }
 
       if (
@@ -195,6 +244,16 @@ export function useCharacterController({
     const body = bodyRef.current;
     const collider = colliderRef.current;
     if (!controller || !body || !collider) {
+      return;
+    }
+
+    if (isHitstopActive()) {
+      const position = body.translation();
+      body.setNextKinematicTranslation({
+        x: position.x,
+        y: position.y,
+        z: position.z,
+      });
       return;
     }
 
@@ -315,12 +374,17 @@ export function useCharacterController({
     motion.hasMoveInput = hasMoveInput;
     motion.runHeld = input.run;
 
-    if (
-      motion.attack &&
-      now - motion.attackStartedAt > config.attackLockSeconds * 1000
-    ) {
+    const clock = stepAttackClock({
+      animationName: motion.attack,
+      attackerId,
+      now,
+      startedAt: motion.attackStartedAt,
+      lockSeconds: config.attackLockSeconds,
+    });
+    if (clock.ended) {
       motion.attack = null;
     }
+    publishCombat(clock.attackId, clock.phase, clock.activeFrames);
 
     let movementState: MovementState;
     if (!motion.attack) {
@@ -354,16 +418,24 @@ export function useCharacterController({
       now,
     );
   }, [
+    attackerId,
     bodyRef,
     camera,
     colliderRef,
     config,
     inputRef,
     movementSnapshot,
+    publishCombat,
     rapier,
     requestAnimation,
     visualRef,
   ]);
+
+  useEffect(() => {
+    return () => {
+      endAttackInstance();
+    };
+  }, []);
 
   useBeforePhysicsStep(step);
 
