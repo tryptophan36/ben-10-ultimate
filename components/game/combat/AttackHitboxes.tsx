@@ -32,24 +32,43 @@ type AttackHitboxesProps = {
   visualRef: RefObject<Group | null>;
 };
 
-function bonePosition(bone: Bone, visualRef: RefObject<Group | null>): Vector3 | null {
+function boneByName(bones: Map<string, Bone>, name: string): Bone | undefined {
+  return (
+    bones.get(name) ??
+    bones.get(name.replaceAll("_", " ")) ??
+    bones.get(name.replaceAll(" ", "_"))
+  );
+}
+
+function bonePosition(
+  bone: Bone,
+  visualRef: RefObject<Group | null>,
+  offset?: readonly [number, number, number],
+): Vector3 | null {
   const visual = visualRef.current;
   if (!visual) {
     return null;
   }
   visual.updateMatrixWorld(true);
-  bone.getWorldPosition(scratch);
+  if (!offset) {
+    bone.getWorldPosition(scratch);
+    return scratch;
+  }
+  scratch.set(offset[0], offset[1], offset[2]);
+  bone.localToWorld(scratch);
   return scratch;
 }
 
 function BoneHitbox({
   bone,
   radius,
+  offset,
   attackIds,
   visualRef,
 }: {
   bone: Bone;
   radius: number;
+  offset?: readonly [number, number, number];
   attackIds: string[];
   visualRef: RefObject<Group | null>;
 }) {
@@ -87,7 +106,7 @@ function BoneHitbox({
       return;
     }
 
-    const position = bonePosition(bone, visualRef);
+    const position = bonePosition(bone, visualRef, offset);
     if (!position) {
       collider.setEnabled(false);
       return;
@@ -97,7 +116,7 @@ function BoneHitbox({
     body.setTranslation(next, true);
     body.setNextKinematicTranslation(next);
     collider.setEnabled(true);
-  }, [attackIds, bone, visualRef, world]);
+  }, [attackIds, bone, offset, visualRef, world]);
 
   const collectHits = useCallback(() => {
     const collider = colliderRef.current;
@@ -140,7 +159,7 @@ function BoneHitbox({
     if (!live) {
       return;
     }
-    const position = bonePosition(bone, visualRef);
+    const position = bonePosition(bone, visualRef, offset);
     if (position) {
       mesh.position.copy(position);
     }
@@ -195,7 +214,7 @@ export function AttackHitboxes({ characterId, model, visualRef }: AttackHitboxes
   }, [model]);
 
   return hitboxes.map((hitbox) => {
-    const bone = bones.get(hitbox.bone);
+    const bone = boneByName(bones, hitbox.bone);
     if (!bone) {
       return null;
     }
@@ -204,6 +223,7 @@ export function AttackHitboxes({ characterId, model, visualRef }: AttackHitboxes
         key={hitbox.bone}
         bone={bone}
         radius={hitbox.radius}
+        offset={hitbox.offset}
         attackIds={hitbox.attackIds}
         visualRef={visualRef}
       />

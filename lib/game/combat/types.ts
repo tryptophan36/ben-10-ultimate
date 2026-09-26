@@ -19,6 +19,8 @@ export type Knockback = {
 export type MeleeHitbox = {
   bone: string;
   radius: number;
+  /** Bone-local meters. Shifts the sphere from the joint onto the fist. */
+  offset?: readonly [number, number, number];
 };
 
 /**

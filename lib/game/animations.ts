@@ -2,7 +2,8 @@ export const LOOPING_ANIMATIONS = ["FA_Idle", "FA_Walk", "FA_Run"] as const;
 
 export const ONE_SHOT_ANIMATIONS = [
   "FA_Jump",
-  "FA_Punch",
+  "fa_punch_left",
+  "fa_punch_right",
   "FA_HeavyPunch",
   "FA_Hit",
 ] as const;
@@ -14,14 +15,14 @@ export const ANIMATION_HOTKEYS: Record<string, string> = {
   Digit2: "FA_Walk",
   Digit3: "FA_Run",
   Digit4: "FA_Jump",
-  Digit5: "FA_Punch",
+  Digit5: "fa_punch_left",
   Digit6: "FA_HeavyPunch",
   Digit7: "FA_Hit",
   Numpad1: "FA_Idle",
   Numpad2: "FA_Walk",
   Numpad3: "FA_Run",
   Numpad4: "FA_Jump",
-  Numpad5: "FA_Punch",
+  Numpad5: "fa_punch_left",
   Numpad6: "FA_HeavyPunch",
   Numpad7: "FA_Hit",
 };
@@ -35,7 +36,7 @@ export const ANIMATION_HOTKEY_LABELS: {
   { key: "2", animation: "FA_Walk", label: "Walk" },
   { key: "3", animation: "FA_Run", label: "Run" },
   { key: "4", animation: "FA_Jump", label: "Jump" },
-  { key: "5", animation: "FA_Punch", label: "Punch" },
+  { key: "5", animation: "fa_punch_left", label: "Punch" },
   { key: "6", animation: "FA_HeavyPunch", label: "Heavy" },
   { key: "7", animation: "FA_Hit", label: "Hit" },
 ];
@@ -62,7 +63,7 @@ export function sameAnimationName(left: string, right: string): boolean {
 
 /**
  * Match a requested clip against the names actually stored in the GLB.
- * The Four Arms file exports the punch clip as "FA_PUNCH".
+ * Punch clips are exported as "fa_punch_left" and "fa_punch_right".
  */
 export function resolveAnimationName(
   requested: string,

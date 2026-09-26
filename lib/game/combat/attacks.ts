@@ -8,17 +8,18 @@ import {
 /**
  * Frame clock is the 60 Hz physics step.
  *
- * The Four Arms clips are long mocap takes. The right upper fist does not
- * reach forward until about frame 25 of FA_PUNCH (113 frames). Both upper
- * fists and the lower left fist reach forward together around frame 50 of
- * FA_HeavyPunch (106 frames). Active windows sit on those strikes so the
- * hitboxes can actually touch a target. Recovery is the rest of the clip.
+ * fa_punch_left and fa_punch_right are 0.92s. Frames 14–21 chamber the fist
+ * behind the body. The strike itself is frames 24–33, when that fist is
+ * forward. Heavy Punch still reaches around frame 50. The hand joint sits
+ * at the wrist, so punch spheres are shifted along the bone toward the knuckles.
  */
-const PUNCH_CLIP_SECONDS = 1.88;
+const PUNCH_CLIP_SECONDS = 0.92;
 const HEAVY_CLIP_SECONDS = 1.76;
 
 const PUNCH_STARTUP = 24;
-const PUNCH_ACTIVE = 8;
+const PUNCH_ACTIVE = 10;
+const LEFT_FIST_OFFSET: readonly [number, number, number] = [0, 0.26, 0];
+const RIGHT_FIST_OFFSET: readonly [number, number, number] = [0, 0.18, 0];
 const HEAVY_STARTUP = 50;
 const HEAVY_ACTIVE = 12;
 
@@ -27,15 +28,17 @@ function remainingFrames(clipDuration: number, startup: number, active: number):
   return Math.max(0, total - startup - active);
 }
 
-export const FOUR_ARMS_PUNCH: AttackDefinition = {
-  id: "four-arms-punch",
+const PUNCH_RECOVERY = remainingFrames(PUNCH_CLIP_SECONDS, PUNCH_STARTUP, PUNCH_ACTIVE);
+
+export const FOUR_ARMS_PUNCH_LEFT: AttackDefinition = {
+  id: "four-arms-punch-left",
   characterId: "four-arms",
   kind: "melee",
-  animation: "FA_Punch",
+  animation: "fa_punch_left",
   damage: 10,
   startup: PUNCH_STARTUP,
   active: PUNCH_ACTIVE,
-  recovery: remainingFrames(PUNCH_CLIP_SECONDS, PUNCH_STARTUP, PUNCH_ACTIVE),
+  recovery: PUNCH_RECOVERY,
   knockback: { horizontal: 6, vertical: 2.2 },
   hitstopMs: 70,
   cameraShake: { amplitude: 0.055, duration: 0.18, frequency: 26 },
@@ -44,7 +47,27 @@ export const FOUR_ARMS_PUNCH: AttackDefinition = {
   clipDuration: PUNCH_CLIP_SECONDS,
   interruptible: false,
   multiHit: false,
-  hitboxes: [{ bone: "Bip01_R_Hand_R", radius: 0.28 }],
+  hitboxes: [{ bone: "Bip01_L_Hand_L", radius: 0.28, offset: LEFT_FIST_OFFSET }],
+};
+
+export const FOUR_ARMS_PUNCH_RIGHT: AttackDefinition = {
+  id: "four-arms-punch-right",
+  characterId: "four-arms",
+  kind: "melee",
+  animation: "fa_punch_right",
+  damage: 10,
+  startup: PUNCH_STARTUP,
+  active: PUNCH_ACTIVE,
+  recovery: PUNCH_RECOVERY,
+  knockback: { horizontal: 6, vertical: 2.2 },
+  hitstopMs: 70,
+  cameraShake: { amplitude: 0.055, duration: 0.18, frequency: 26 },
+  impactScale: 1,
+  hitstun: 0.25,
+  clipDuration: PUNCH_CLIP_SECONDS,
+  interruptible: false,
+  multiHit: false,
+  hitboxes: [{ bone: "Bip01_R_Hand_R", radius: 0.28, offset: RIGHT_FIST_OFFSET }],
 };
 
 export const FOUR_ARMS_HEAVY_PUNCH: AttackDefinition = {
@@ -65,17 +88,22 @@ export const FOUR_ARMS_HEAVY_PUNCH: AttackDefinition = {
   interruptible: false,
   multiHit: false,
   hitboxes: [
-    { bone: "Bip01_L_Hand_L", radius: 0.28 },
-    { bone: "Bip01_R_Hand_R", radius: 0.28 },
+    { bone: "Bip01_L_Hand_L", radius: 0.28, offset: LEFT_FIST_OFFSET },
+    { bone: "Bip01_R_Hand_R", radius: 0.28, offset: RIGHT_FIST_OFFSET },
     { bone: "L_hand_L", radius: 0.26 },
   ],
 };
 
-const ATTACKS: AttackDefinition[] = [FOUR_ARMS_PUNCH, FOUR_ARMS_HEAVY_PUNCH];
+const ATTACKS: AttackDefinition[] = [
+  FOUR_ARMS_PUNCH_LEFT,
+  FOUR_ARMS_PUNCH_RIGHT,
+  FOUR_ARMS_HEAVY_PUNCH,
+];
 
 export type ActiveHitbox = {
   bone: string;
   radius: number;
+  offset?: readonly [number, number, number];
   attackIds: string[];
 };
 
@@ -101,10 +129,12 @@ export function meleeHitboxes(characterId: string): ActiveHitbox[] {
       if (existing) {
         existing.attackIds.push(attack.id);
         existing.radius = Math.max(existing.radius, hitbox.radius);
+        existing.offset ??= hitbox.offset;
       } else {
         merged.set(hitbox.bone, {
           bone: hitbox.bone,
           radius: hitbox.radius,
+          offset: hitbox.offset,
           attackIds: [attack.id],
         });
       }

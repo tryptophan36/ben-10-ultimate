@@ -22,9 +22,12 @@ import {
   animationForMovement,
   capsuleHalfExtent,
   isAttackAnimation,
+  nextPunchSide,
+  punchAnimation,
   selectMovementState,
   stepYaw,
   yawForDirection,
+  type PunchSide,
   type LocomotionConfig,
   type MovementState,
 } from "@/lib/game/locomotion";
@@ -47,6 +50,7 @@ type Motion = {
   coyote: number;
   attack: string | null;
   attackStartedAt: number;
+  punchSide: PunchSide;
   lastAnimation: string;
   hasMoveInput: boolean;
   runHeld: boolean;
@@ -74,19 +78,17 @@ function consumeAttack(
     }
   }
 
-  const name = input.punch
-    ? config.animations.punch
-    : input.heavyPunch
-      ? config.animations.heavyPunch
-      : null;
+  let name: string | null = null;
+  if (input.punch) {
+    input.punch = false;
+    name = punchAnimation(config, motion.punchSide);
+    motion.punchSide = nextPunchSide(motion.punchSide);
+  } else if (input.heavyPunch) {
+    input.heavyPunch = false;
+    name = config.animations.heavyPunch;
+  }
   if (!name) {
     return null;
-  }
-
-  if (name === config.animations.punch) {
-    input.punch = false;
-  } else {
-    input.heavyPunch = false;
   }
 
   motion.attack = name;
@@ -118,6 +120,7 @@ export function useCharacterController({
     coyote: config.coyoteTime,
     attack: null,
     attackStartedAt: 0,
+    punchSide: "left",
     lastAnimation: config.animations.idle,
     hasMoveInput: false,
     runHeld: false,

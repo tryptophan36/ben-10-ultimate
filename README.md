@@ -26,7 +26,7 @@ npx tsc --noEmit
 | WASD | Move, relative to the camera. D is screen-right. |
 | Shift | Run |
 | Space | Jump, once per landing |
-| J | Punch (10 damage) |
+| J | Punch (10 damage). Alternates left, then right |
 | K | Heavy punch (25 damage) |
 | H | Toggle hitbox debug draw |
 
@@ -105,12 +105,12 @@ Pass stable arrays into `position`, `args`, and `enabledRotations` on Rapier com
 
 ## Animation
 
-Clips live in `public/models/fourarms_game.glb`. Do not edit that file to change gameplay. The exported punch clip is named `FA_PUNCH`. Code asks for `FA_Punch`. `resolveAnimationName` matches case-insensitively.
+Clips live in `public/models/fourarms_game.glb`. Do not edit that file to change gameplay. Punch is two clips, `fa_punch_left` and `fa_punch_right`. `J` alternates them, starting with the left. `resolveAnimationName` matches case-insensitively.
 
 | Clip | Playback |
 | --- | --- |
 | `FA_Idle`, `FA_Walk`, `FA_Run` | Loop |
-| `FA_Jump`, `FA_Punch`, `FA_HeavyPunch`, `FA_Hit` | Play once and hold the last frame |
+| `FA_Jump`, `fa_punch_left`, `fa_punch_right`, `FA_HeavyPunch`, `FA_Hit` | Play once and hold the last frame |
 
 `gameSlice` stores `currentAnimation` and `animationEpoch`. Dispatching `playAnimation` bumps the epoch, which restarts the clip even when the name is unchanged. `useAnimationController` crossfades over 0.2 seconds. When a one-shot finishes it asks the character controller what to play next: a buffered attack, the jump hold while still airborne, or the locomotion clip. There is also an `FA_Hit` clip on the model. The training dummy does not use it. The dummy is a capsule.
 
@@ -118,7 +118,7 @@ At yaw 0 the mesh faces +Z. `modelYawOffset` is 0. Three.js renames bones that c
 
 ## Combat
 
-Attack data is `AttackDefinition` in `lib/game/combat/types.ts`. The Four Arms moves are `FOUR_ARMS_PUNCH` and `FOUR_ARMS_HEAVY_PUNCH` in `lib/game/combat/attacks.ts`. Frame counts are physics steps.
+Attack data is `AttackDefinition` in `lib/game/combat/types.ts`. The Four Arms moves are `FOUR_ARMS_PUNCH_LEFT`, `FOUR_ARMS_PUNCH_RIGHT`, and `FOUR_ARMS_HEAVY_PUNCH` in `lib/game/combat/attacks.ts`. Frame counts are physics steps.
 
 ```
 Input
@@ -128,7 +128,7 @@ Input
   → IDLE             locomotion clip resumes
 ```
 
-These clips extend the fists well after the first few frames, so the active windows sit on the part of the take where a hand is actually forward. Punch is the right upper hand. Heavy punch is both upper hands and the lower left hand. Recovery is the remainder of the clip. `interruptible` and `multiHit` are both false. A press during an attack is kept and starts after recovery.
+These clips extend the fists well after the first few frames, so the active windows sit on the part of the take where a hand is actually forward. Left punch uses the left upper hand, right punch the right upper hand, and each `J` press swaps which one plays. Heavy punch is both upper hands and the lower left hand. Recovery is the remainder of the clip. `interruptible` and `multiHit` are both false. A press during an attack is kept and starts after recovery.
 
 `lib/game/combat/runtime.ts` is the per-step combat state: current attack, serial number, phase, and the set of targets already hit. The animation controller publishes the playing clip's time into `clipClock` after the mixer updates. The next physics step reads that time, so the phase is about one rendered frame behind the pose.
 
@@ -140,8 +140,8 @@ Current numbers:
 
 | Attack | Damage | Startup | Active | Knockback | Hitstun |
 | --- | --- | --- | --- | --- | --- |
-| Punch | 10 | 24 frames | 8 frames | 5 m/s | 0.25 s |
-| Heavy punch | 25 | 50 frames | 12 frames | 10 m/s | 0.50 s |
+| Punch (left or right) | 10 | 24 frames | 10 frames | 6 m/s, 2.2 m/s up | 0.25 s |
+| Heavy punch | 25 | 50 frames | 12 frames | 12 m/s, 3.6 m/s up | 0.50 s |
 
 The dummy starts at 100 HP.
 

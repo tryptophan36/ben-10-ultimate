@@ -28,10 +28,21 @@ export type LocomotionConfig = {
     walk: string;
     run: string;
     jump: string;
-    punch: string;
+    punchLeft: string;
+    punchRight: string;
     heavyPunch: string;
   };
 };
+
+export type PunchSide = "left" | "right";
+
+export function punchAnimation(config: LocomotionConfig, side: PunchSide): string {
+  return side === "left" ? config.animations.punchLeft : config.animations.punchRight;
+}
+
+export function nextPunchSide(side: PunchSide): PunchSide {
+  return side === "left" ? "right" : "left";
+}
 
 export const fourArmsLocomotion: LocomotionConfig = {
   capsuleRadius: 0.42,
@@ -59,7 +70,8 @@ export const fourArmsLocomotion: LocomotionConfig = {
     walk: "FA_Walk",
     run: "FA_Run",
     jump: "FA_Jump",
-    punch: "FA_Punch",
+    punchLeft: "fa_punch_left",
+    punchRight: "fa_punch_right",
     heavyPunch: "FA_HeavyPunch",
   },
 };
@@ -116,7 +128,8 @@ export function animationForMovement(
 export function isAttackAnimation(config: LocomotionConfig, name: string): boolean {
   const folded = name.toLowerCase();
   return (
-    folded === config.animations.punch.toLowerCase() ||
+    folded === config.animations.punchLeft.toLowerCase() ||
+    folded === config.animations.punchRight.toLowerCase() ||
     folded === config.animations.heavyPunch.toLowerCase()
   );
 }
