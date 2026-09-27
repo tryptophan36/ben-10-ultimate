@@ -2,7 +2,10 @@ import { GRAVITY } from "@/lib/game/physics";
 
 export type MovementState = "idle" | "walk" | "run" | "jump";
 
+export type MovementStyle = "biped" | "cannonbolt";
+
 export type LocomotionConfig = {
+  movement: MovementStyle;
   capsuleRadius: number;
   capsuleHalfHeight: number;
   colliderOffset: number;
@@ -45,6 +48,7 @@ export function nextPunchSide(side: PunchSide): PunchSide {
 }
 
 export const fourArmsLocomotion: LocomotionConfig = {
+  movement: "biped",
   capsuleRadius: 0.42,
   capsuleHalfHeight: 0.68,
   colliderOffset: 0.03,

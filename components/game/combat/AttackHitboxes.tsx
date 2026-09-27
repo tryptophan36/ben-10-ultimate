@@ -40,8 +40,31 @@ function boneByName(bones: Map<string, Bone>, name: string): Bone | undefined {
   );
 }
 
+/** Bones first, so Four Arms stays on its joints. A named mesh covers the ball. */
+function anchorByName(model: Object3D, name: string): Object3D | undefined {
+  const bones = new Map<string, Bone>();
+  model.traverse((object) => {
+    if (object instanceof Bone) {
+      bones.set(object.name, object);
+    }
+  });
+  const bone = boneByName(bones, name);
+  if (bone) {
+    return bone;
+  }
+
+  const folded = name.toLowerCase();
+  let found: Object3D | undefined;
+  model.traverse((object) => {
+    if (!found && object.name.toLowerCase() === folded) {
+      found = object;
+    }
+  });
+  return found;
+}
+
 function bonePosition(
-  bone: Bone,
+  bone: Object3D,
   visualRef: RefObject<Group | null>,
   offset?: readonly [number, number, number],
 ): Vector3 | null {
@@ -66,7 +89,7 @@ function BoneHitbox({
   attackIds,
   visualRef,
 }: {
-  bone: Bone;
+  bone: Object3D;
   radius: number;
   offset?: readonly [number, number, number];
   attackIds: string[];
@@ -203,18 +226,19 @@ function BoneHitbox({
 
 export function AttackHitboxes({ characterId, model, visualRef }: AttackHitboxesProps) {
   const hitboxes = useMemo(() => meleeHitboxes(characterId), [characterId]);
-  const bones = useMemo(() => {
-    const found = new Map<string, Bone>();
-    model.traverse((object) => {
-      if (object instanceof Bone) {
-        found.set(object.name, object);
+  const anchors = useMemo(() => {
+    const found = new Map<string, Object3D>();
+    for (const hitbox of meleeHitboxes(characterId)) {
+      const anchor = anchorByName(model, hitbox.bone);
+      if (anchor) {
+        found.set(hitbox.bone, anchor);
       }
-    });
+    }
     return found;
-  }, [model]);
+  }, [characterId, model]);
 
   return hitboxes.map((hitbox) => {
-    const bone = boneByName(bones, hitbox.bone);
+    const bone = anchors.get(hitbox.bone);
     if (!bone) {
       return null;
     }

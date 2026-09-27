@@ -10,6 +10,7 @@ import { HitstopClock } from "@/components/game/combat/HitstopClock";
 import { HitstopSim } from "@/components/game/combat/HitstopSim";
 import { ImpactBursts } from "@/components/game/combat/ImpactBursts";
 import { TrainingDummy } from "@/components/game/combat/TrainingDummy";
+import { Cannonbolt } from "@/components/game/characters/Cannonbolt";
 import { DebugHud } from "@/components/game/DebugHud";
 import { Player } from "@/components/game/Player";
 import { resetCameraShake } from "@/lib/game/camera/cameraShake";
@@ -119,7 +120,11 @@ export function GameCanvas() {
           >
             <HitstopSim />
             <Ground />
-            <Player key={selectedCharacter} />
+            {selectedCharacter === "cannonbolt" ? (
+              <Cannonbolt key="cannonbolt" />
+            ) : (
+              <Player key={selectedCharacter} />
+            )}
             <TrainingDummy />
           </Physics>
         </Suspense>

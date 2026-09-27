@@ -94,10 +94,44 @@ export const FOUR_ARMS_HEAVY_PUNCH: AttackDefinition = {
   ],
 };
 
+/**
+ * Fast Roll reuses the looping CB_Roll clip, so its phases are physics frames
+ * rather than clip time. 60 Hz: 8 startup, 18 active, 12 recovery (0.633s).
+ * The sphere sits on the front of the ball. CB_Roll itself is not an attack.
+ */
+const FAST_ROLL_STARTUP = 8;
+const FAST_ROLL_ACTIVE = 18;
+const FAST_ROLL_RECOVERY = 12;
+const FAST_ROLL_FRAMES = FAST_ROLL_STARTUP + FAST_ROLL_ACTIVE + FAST_ROLL_RECOVERY;
+/** Front of the ball, with enough lead that a full-speed step still overlaps a touch. */
+const FAST_ROLL_FORWARD: readonly [number, number, number] = [0, 0, 1.05];
+
+export const CANNONBOLT_FAST_ROLL: AttackDefinition = {
+  id: "CB_FastRoll",
+  characterId: "cannonbolt",
+  kind: "melee",
+  animation: "CB_FastRoll",
+  damage: 25,
+  startup: FAST_ROLL_STARTUP,
+  active: FAST_ROLL_ACTIVE,
+  recovery: FAST_ROLL_RECOVERY,
+  knockback: { horizontal: 16, vertical: 2.4 },
+  hitstopMs: 90,
+  cameraShake: { amplitude: 0.1, duration: 0.22, frequency: 18 },
+  impactScale: 1.6,
+  hitstun: 0.45,
+  clipDuration: FAST_ROLL_FRAMES * PHYSICS_TIMESTEP,
+  interruptible: false,
+  multiHit: false,
+  clock: "elapsed",
+  hitboxes: [{ bone: "Cannonbolt_Ball", radius: 0.65, offset: FAST_ROLL_FORWARD }],
+};
+
 const ATTACKS: AttackDefinition[] = [
   FOUR_ARMS_PUNCH_LEFT,
   FOUR_ARMS_PUNCH_RIGHT,
   FOUR_ARMS_HEAVY_PUNCH,
+  CANNONBOLT_FAST_ROLL,
 ];
 
 export type ActiveHitbox = {

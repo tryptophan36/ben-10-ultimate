@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { LoopOnce, LoopRepeat, type AnimationAction, type AnimationMixer } from "three";
 import { bindHitstopMixer } from "@/lib/game/combat/hitstop";
@@ -15,13 +15,49 @@ import { playAnimation, registerAnimations } from "@/store/slices/gameSlice";
 
 const FADE_SECONDS = 0.2;
 
-type AnimationControllerInput = {
+function startClip(
+  action: AnimationAction,
+  previous: AnimationAction | null,
+  looping: boolean,
+) {
+  action.enabled = true;
+  action.setEffectiveTimeScale(1);
+  action.setLoop(looping ? LoopRepeat : LoopOnce, looping ? Infinity : 1);
+  action.clampWhenFinished = !looping;
+
+  const switchingMixer = Boolean(
+    previous && previous !== action && previous.getMixer() !== action.getMixer(),
+  );
+  if (previous && previous !== action) {
+    if (switchingMixer) {
+      previous.stop();
+      previous.setEffectiveWeight(0);
+    } else {
+      previous.fadeOut(FADE_SECONDS);
+    }
+  }
+
+  action.reset();
+  if (previous && previous !== action && !switchingMixer) {
+    action.fadeIn(FADE_SECONDS);
+  } else {
+    action.setEffectiveWeight(1);
+  }
+  action.play();
+}
+
+type AnimationLibrary = {
   actions: {
     [name: string]: AnimationAction | null | undefined;
   };
   mixer: AnimationMixer;
   names: string[];
+};
+
+type AnimationControllerInput = AnimationLibrary & {
   onOneShotFinished?: (clipName: string) => string | null;
+  /** Clips that live on a second model, such as Cannonbolt's ball. */
+  secondary?: AnimationLibrary;
 };
 
 export function useAnimationController({
@@ -29,16 +65,21 @@ export function useAnimationController({
   mixer,
   names,
   onOneShotFinished,
+  secondary,
 }: AnimationControllerInput) {
   const dispatch = useAppDispatch();
   const currentAnimation = useAppSelector((state) => state.game.currentAnimation);
   const animationEpoch = useAppSelector((state) => state.game.animationEpoch);
   const actionsRef = useRef(actions);
+  const secondaryActionsRef = useRef(secondary?.actions);
   const activeActionRef = useRef<AnimationAction | null>(null);
   const onOneShotFinishedRef = useRef(onOneShotFinished);
+  const secondaryNames = secondary?.names;
+  const secondaryMixer = secondary?.mixer;
 
   useEffect(() => {
     actionsRef.current = actions;
+    secondaryActionsRef.current = secondary?.actions;
   });
 
   useEffect(() => {
@@ -69,38 +110,36 @@ export function useAnimationController({
   }, []);
 
   useEffect(() => {
-    dispatch(registerAnimations(names));
-  }, [dispatch, names]);
+    if (!secondaryNames || secondaryNames.length === 0) {
+      dispatch(registerAnimations(names));
+      return;
+    }
+
+    const combined = [...names];
+    for (const name of secondaryNames) {
+      if (!combined.includes(name)) {
+        combined.push(name);
+      }
+    }
+    dispatch(registerAnimations(combined));
+  }, [dispatch, names, secondaryNames]);
 
   useEffect(() => {
-    const action = actionsRef.current[currentAnimation];
+    const action =
+      actionsRef.current[currentAnimation] ??
+      secondaryActionsRef.current?.[currentAnimation];
     if (!action) {
       return;
     }
 
-    const looping = isLoopingAnimation(currentAnimation);
-    action.enabled = true;
-    action.setEffectiveTimeScale(1);
-    action.setLoop(looping ? LoopRepeat : LoopOnce, looping ? Infinity : 1);
-    action.clampWhenFinished = !looping;
-
     const previous = activeActionRef.current;
-    if (previous && previous !== action) {
-      previous.fadeOut(FADE_SECONDS);
-    }
-
-    action.reset();
-    if (previous && previous !== action) {
-      action.fadeIn(FADE_SECONDS);
-    } else {
-      action.setEffectiveWeight(1);
-    }
-    action.play();
+    startClip(action, previous, isLoopingAnimation(currentAnimation));
     activeActionRef.current = action;
+    bindHitstopMixer(action.getMixer());
   }, [actions, animationEpoch, currentAnimation]);
 
-  useEffect(() => {
-    const onFinished = (event: { action: AnimationAction }) => {
+  const onFinished = useCallback(
+    (event: { action: AnimationAction }) => {
       const clipName = event.action.getClip().name;
       if (!isOneShotAnimation(clipName)) {
         return;
@@ -119,11 +158,24 @@ export function useAnimationController({
       if (next) {
         dispatch(playAnimation(next));
       }
-    };
+    },
+    [dispatch],
+  );
 
+  useEffect(() => {
     mixer.addEventListener("finished", onFinished);
     return () => {
       mixer.removeEventListener("finished", onFinished);
     };
-  }, [dispatch, mixer]);
+  }, [mixer, onFinished]);
+
+  useEffect(() => {
+    if (!secondaryMixer || secondaryMixer === mixer) {
+      return;
+    }
+    secondaryMixer.addEventListener("finished", onFinished);
+    return () => {
+      secondaryMixer.removeEventListener("finished", onFinished);
+    };
+  }, [mixer, onFinished, secondaryMixer]);
 }

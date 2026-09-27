@@ -28,6 +28,8 @@ type AttackRuntime = {
   phase: AttackPhase;
   activeFrames: number;
   seenClipStart: boolean;
+  /** Physics frames since this attack began. Used by elapsed-clock moves. */
+  elapsedFrame: number;
 };
 
 export const attackRuntime: AttackRuntime = {
@@ -38,6 +40,7 @@ export const attackRuntime: AttackRuntime = {
   phase: ATTACK_PHASE.idle,
   activeFrames: 0,
   seenClipStart: false,
+  elapsedFrame: 0,
 };
 
 const hurtboxes = new Map<number, Damageable>();
@@ -82,6 +85,7 @@ function beginAttack(attack: AttackDefinition, attackerId: string): void {
   attackRuntime.phase = ATTACK_PHASE.startup;
   attackRuntime.activeFrames = 0;
   attackRuntime.seenClipStart = false;
+  attackRuntime.elapsedFrame = 0;
   hitTargets.clear();
 }
 
@@ -91,7 +95,35 @@ export function endAttackInstance(): void {
   attackRuntime.phase = ATTACK_PHASE.idle;
   attackRuntime.activeFrames = 0;
   attackRuntime.seenClipStart = false;
+  attackRuntime.elapsedFrame = 0;
   hitTargets.clear();
+}
+
+function stepElapsedAttack(attack: AttackDefinition, attackerId: string): AttackClock {
+  if (!attackRuntime.live || attackRuntime.attackId !== attack.id) {
+    beginAttack(attack, attackerId);
+  }
+
+  const frame = attackRuntime.elapsedFrame;
+  attackRuntime.elapsedFrame += 1;
+  const phase = phaseForFrame(attack, frame);
+  const activeFrames = commitPhase(phase);
+  if (phase === ATTACK_PHASE.idle) {
+    endAttackInstance();
+    return {
+      attackId: null,
+      phase: ATTACK_PHASE.idle,
+      ended: true,
+      activeFrames,
+    };
+  }
+
+  return {
+    attackId: attack.id,
+    phase,
+    ended: false,
+    activeFrames,
+  };
 }
 
 function commitPhase(next: AttackPhase): number | null {
@@ -166,6 +198,10 @@ export function stepAttackClock(input: {
       ended: true,
       activeFrames,
     };
+  }
+
+  if (attack.clock === "elapsed") {
+    return stepElapsedAttack(attack, input.attackerId);
   }
 
   if (!attackRuntime.live || attackRuntime.attackId !== attack.id) {

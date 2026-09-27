@@ -50,6 +50,12 @@ export type AttackDefinition = {
   interruptible: boolean;
   multiHit: boolean;
   hitboxes: MeleeHitbox[];
+  /**
+   * clip follows the attack animation from frame 0.
+   * elapsed counts physics frames from the moment the attack starts, so a
+   * move can reuse a looping locomotion clip. Omitted attacks follow the clip.
+   */
+  clock?: "clip" | "elapsed";
 };
 
 export type DamageRequest = {

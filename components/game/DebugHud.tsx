@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useSyncExternalStore } from "react";
-import { characters } from "@/lib/game/characters";
+import { characterIds, characters } from "@/lib/game/characters";
 import {
   getFeelDebug,
   getFeelDebugServerSnapshot,
@@ -16,6 +16,7 @@ import { ATTACK_PHASE } from "@/lib/game/combat/types";
 import { getControllerDebug, subscribeControllerDebug } from "@/lib/game/runtime";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { toggleShowHitboxes, TRAINING_DUMMY_ID } from "@/store/slices/combatSlice";
+import { setSelectedCharacter } from "@/store/slices/gameSlice";
 
 function DebugRow({
   label,
@@ -78,14 +79,33 @@ export function DebugHud() {
       if (event.code === "KeyH") {
         dispatch(toggleShowHitboxes());
       }
+      if (event.code === "KeyC") {
+        const index = characterIds.indexOf(selectedCharacter);
+        const next = characterIds[(index + 1) % characterIds.length] ?? selectedCharacter;
+        dispatch(setSelectedCharacter(next));
+      }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [dispatch]);
+  }, [dispatch, selectedCharacter]);
 
-  const hitboxLabel =
-    attackPhase === ATTACK_PHASE.active && showHitboxes
+  const isCannonbolt = selectedCharacter === "cannonbolt";
+  const movementLabel = isCannonbolt ? "State" : "Movement";
+  const movementValue = isCannonbolt
+    ? debug.movementState.replace("CANNONBOLT_", "")
+    : debug.movementState;
+  const groundedValue = isCannonbolt
+    ? String(debug.grounded)
+    : debug.grounded
+      ? "yes"
+      : "no";
+
+  const hitboxLabel = isCannonbolt
+    ? attackPhase === ATTACK_PHASE.active
+      ? "active"
+      : "inactive"
+    : attackPhase === ATTACK_PHASE.active && showHitboxes
       ? "LIVE"
       : showHitboxes
         ? "armed"
@@ -109,15 +129,19 @@ export function DebugHud() {
           value={currentAnimation}
           valueClassName="text-emerald-300"
         />
-        <DebugRow label="Movement" value={debug.movementState} />
-        <DebugRow label="Grounded" value={debug.grounded ? "yes" : "no"} />
+        <DebugRow label={movementLabel} value={movementValue} />
+        <DebugRow label="Grounded" value={groundedValue} />
         <DebugRow label="Speed" value={debug.speed.toFixed(2)} />
         <DebugRow label="Attack" value={attackPhase} valueClassName="text-amber-200" />
-        <DebugRow label="Attack id" value={attackId ?? "none"} />
+        <DebugRow label="Attack name" value={attackId ?? "none"} />
         <DebugRow
           label="Hitboxes"
           value={hitboxLabel}
-          valueClassName={hitboxLabel === "LIVE" ? "text-red-300" : "text-zinc-100"}
+          valueClassName={
+            hitboxLabel === "LIVE" || hitboxLabel === "active"
+              ? "text-red-300"
+              : "text-zinc-100"
+          }
         />
         <DebugRow label="Active frames" value={String(lastActiveFrames)} />
         <DebugRow label="Dummy HP" value={dummy ? `${dummy.hp}` : "—"} />
@@ -151,11 +175,22 @@ export function DebugHud() {
           <span className="text-zinc-200">Space</span> jump
         </li>
         <li>
-          <span className="text-zinc-200">J</span> punch{" "}
-          <span className="text-zinc-200">K</span> heavy
+          {isCannonbolt ? (
+            <>
+              <span className="text-zinc-200">J</span> fast roll
+            </>
+          ) : (
+            <>
+              <span className="text-zinc-200">J</span> punch{" "}
+              <span className="text-zinc-200">K</span> heavy
+            </>
+          )}
         </li>
         <li>
           <span className="text-zinc-200">H</span> hitboxes
+        </li>
+        <li>
+          <span className="text-zinc-200">C</span> switch character
         </li>
       </ul>
     </aside>

@@ -1,4 +1,10 @@
-export const LOOPING_ANIMATIONS = ["FA_Idle", "FA_Walk", "FA_Run"] as const;
+export const LOOPING_ANIMATIONS = [
+  "FA_Idle",
+  "FA_Walk",
+  "FA_Run",
+  "CB_Idle",
+  "CB_Roll",
+] as const;
 
 export const ONE_SHOT_ANIMATIONS = [
   "FA_Jump",
@@ -6,6 +12,9 @@ export const ONE_SHOT_ANIMATIONS = [
   "fa_punch_right",
   "FA_HeavyPunch",
   "FA_Hit",
+  "CB_Curl",
+  "CB_Uncurl",
+  "CB_Jump",
 ] as const;
 
 export const DEFAULT_ANIMATION = "FA_Idle";

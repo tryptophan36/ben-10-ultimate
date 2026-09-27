@@ -1,6 +1,7 @@
+import { cannonboltLocomotion } from "@/lib/game/cannonbolt";
 import { fourArmsLocomotion, type LocomotionConfig } from "@/lib/game/locomotion";
 
-export const characterIds = ["four-arms"] as const;
+export const characterIds = ["four-arms", "cannonbolt"] as const;
 
 export type CharacterId = (typeof characterIds)[number];
 
@@ -8,6 +9,7 @@ export type CharacterDefinition = {
   id: CharacterId;
   name: string;
   modelUrl: string;
+  ballModelUrl?: string;
   defaultAnimation: string;
   locomotion: LocomotionConfig;
 };
@@ -20,5 +22,13 @@ export const characters: Record<CharacterId, CharacterDefinition> = {
     modelUrl: "/models/fourarms_game.glb",
     defaultAnimation: "FA_Idle",
     locomotion: fourArmsLocomotion,
+  },
+  cannonbolt: {
+    id: "cannonbolt",
+    name: "Cannonbolt",
+    modelUrl: "/models/cannonbolt/cannonbolt-standing.glb",
+    ballModelUrl: "/models/cannonbolt/cannonbolt-ball.glb",
+    defaultAnimation: "CB_Idle",
+    locomotion: cannonboltLocomotion,
   },
 };

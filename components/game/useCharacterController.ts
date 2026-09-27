@@ -10,7 +10,21 @@ import {
 } from "@react-three/rapier";
 import { Vector3, type Group } from "three";
 import { sameAnimationName } from "@/lib/game/animations";
-import { attackForAnimation } from "@/lib/game/combat/attacks";
+import {
+  advanceCannonboltPhase,
+  animationForCannonboltPhase,
+  CANNONBOLT_FAST_ROLL_ACCELERATION,
+  CANNONBOLT_FAST_ROLL_SPEED,
+  cannonboltCanFastRoll,
+  cannonboltFormForPhase,
+  cannonboltHoldsPlanar,
+  cannonboltPhaseAfterClip,
+  cannonboltStateForPhase,
+  cannonboltView,
+  type CannonboltPhase,
+  type CannonboltState,
+} from "@/lib/game/cannonbolt";
+import { attackForAnimation, CANNONBOLT_FAST_ROLL } from "@/lib/game/combat/attacks";
 import { isHitstopActive } from "@/lib/game/combat/hitstop";
 import {
   attackRuntime,
@@ -52,6 +66,7 @@ type Motion = {
   attackStartedAt: number;
   punchSide: PunchSide;
   lastAnimation: string;
+  cannonboltPhase: CannonboltPhase;
   hasMoveInput: boolean;
   runHeld: boolean;
   speed: number;
@@ -122,6 +137,7 @@ export function useCharacterController({
     attackStartedAt: 0,
     punchSide: "left",
     lastAnimation: config.animations.idle,
+    cannonboltPhase: "standing",
     hasMoveInput: false,
     runHeld: false,
     speed: 0,
@@ -200,6 +216,24 @@ export function useCharacterController({
   const onOneShotFinished = useCallback(
     (clipName: string) => {
       const motion = motionRef.current;
+      if (config.movement === "cannonbolt") {
+        const nextPhase = cannonboltPhaseAfterClip(motion.cannonboltPhase, clipName, {
+          grounded: motion.grounded,
+          hasMoveInput: motion.hasMoveInput,
+        });
+        if (!nextPhase) {
+          return null;
+        }
+        motion.cannonboltPhase = nextPhase;
+        cannonboltView.form = cannonboltFormForPhase(nextPhase);
+        const animation = animationForCannonboltPhase(nextPhase);
+        if (sameAnimationName(motion.lastAnimation, animation)) {
+          return null;
+        }
+        motion.lastAnimation = animation;
+        return animation;
+      }
+
       if (isAttackAnimation(config, clipName)) {
         if (
           attackRuntime.phase === ATTACK_PHASE.startup ||
@@ -284,20 +318,79 @@ export function useCharacterController({
     }
 
     const hasMoveInput = wish.current.lengthSq() > 0.0001;
-    const targetSpeed = input.run ? config.runSpeed : config.walkSpeed;
-    const targetX = hasMoveInput ? wish.current.x * targetSpeed : 0;
-    const targetZ = hasMoveInput ? wish.current.z * targetSpeed : 0;
-    const rate = hasMoveInput ? config.acceleration : config.deceleration;
-    const maxDelta = rate * dt;
-    const deltaX = targetX - motion.vx;
-    const deltaZ = targetZ - motion.vz;
-    const deltaLength = Math.hypot(deltaX, deltaZ);
-    if (deltaLength <= maxDelta || deltaLength === 0) {
-      motion.vx = targetX;
-      motion.vz = targetZ;
+    let acceleration = config.acceleration;
+    let speedCap: number | null = null;
+    if (config.movement === "cannonbolt") {
+      input.heavyPunch = false;
+
+      const driveFastRoll = (phase: AttackPhase) => {
+        if (phase !== ATTACK_PHASE.startup && phase !== ATTACK_PHASE.active) {
+          return;
+        }
+        acceleration = CANNONBOLT_FAST_ROLL_ACCELERATION;
+        if (phase === ATTACK_PHASE.active) {
+          speedCap = CANNONBOLT_FAST_ROLL_SPEED;
+        }
+        if (!hasMoveInput) {
+          wish.current.set(Math.sin(motion.yaw), 0, Math.cos(motion.yaw));
+        }
+      };
+
+      const tickFastRoll = () => {
+        if (!motion.attack) {
+          return;
+        }
+        const clock = stepAttackClock({
+          animationName: motion.attack,
+          attackerId,
+          now,
+          startedAt: motion.attackStartedAt,
+          lockSeconds: config.attackLockSeconds,
+        });
+        if (clock.ended) {
+          motion.attack = null;
+        }
+        publishCombat(clock.attackId, clock.phase, clock.activeFrames);
+        if (motion.attack) {
+          driveFastRoll(clock.phase);
+        }
+      };
+
+      tickFastRoll();
+      if (!motion.attack && input.punch) {
+        input.punch = false;
+        if (!input.jump && cannonboltCanFastRoll(motion.cannonboltPhase, motion.grounded)) {
+          motion.attack = CANNONBOLT_FAST_ROLL.animation;
+          motion.attackStartedAt = now;
+          motion.cannonboltPhase = "rolling";
+          tickFastRoll();
+        }
+      }
+    }
+
+    const propel = wish.current.lengthSq() > 0.0001;
+    const holdPlanar =
+      config.movement === "cannonbolt" &&
+      cannonboltHoldsPlanar(motion.cannonboltPhase, motion.grounded, hasMoveInput);
+    const targetSpeed = speedCap ?? (input.run ? config.runSpeed : config.walkSpeed);
+    const targetX = !holdPlanar && propel ? wish.current.x * targetSpeed : 0;
+    const targetZ = !holdPlanar && propel ? wish.current.z * targetSpeed : 0;
+    if (holdPlanar) {
+      motion.vx = 0;
+      motion.vz = 0;
     } else {
-      motion.vx += (deltaX / deltaLength) * maxDelta;
-      motion.vz += (deltaZ / deltaLength) * maxDelta;
+      const rate = propel ? acceleration : config.deceleration;
+      const maxDelta = rate * dt;
+      const deltaX = targetX - motion.vx;
+      const deltaZ = targetZ - motion.vz;
+      const deltaLength = Math.hypot(deltaX, deltaZ);
+      if (deltaLength <= maxDelta || deltaLength === 0) {
+        motion.vx = targetX;
+        motion.vz = targetZ;
+      } else {
+        motion.vx += (deltaX / deltaLength) * maxDelta;
+        motion.vz += (deltaZ / deltaLength) * maxDelta;
+      }
     }
 
     const jumpPressed = input.jump;
@@ -377,30 +470,53 @@ export function useCharacterController({
     motion.hasMoveInput = hasMoveInput;
     motion.runHeld = input.run;
 
-    const clock = stepAttackClock({
-      animationName: motion.attack,
-      attackerId,
-      now,
-      startedAt: motion.attackStartedAt,
-      lockSeconds: config.attackLockSeconds,
-    });
-    if (clock.ended) {
-      motion.attack = null;
-    }
-    publishCombat(clock.attackId, clock.phase, clock.activeFrames);
+    let movementState: MovementState | CannonboltState;
+    if (config.movement === "cannonbolt") {
+      if (motion.attack && !motion.grounded && motion.vy > 0.05) {
+        const activeFrames =
+          attackRuntime.phase === ATTACK_PHASE.active ? attackRuntime.activeFrames : null;
+        motion.attack = null;
+        endAttackInstance();
+        publishCombat(null, ATTACK_PHASE.idle, activeFrames);
+      }
 
-    let movementState: MovementState;
-    if (!motion.attack) {
-      const buffered = consumeAttack(input, config, motion, now);
-      if (buffered) {
-        requestAnimation(buffered);
-        movementState = movementSnapshot();
+      if (motion.attack) {
+        motion.cannonboltPhase = "rolling";
+      } else {
+        motion.cannonboltPhase = advanceCannonboltPhase(motion.cannonboltPhase, {
+          grounded: motion.grounded,
+          hasMoveInput,
+        });
+      }
+      cannonboltView.form = cannonboltFormForPhase(motion.cannonboltPhase);
+      cannonboltView.speed = actualSpeed;
+      requestAnimation(animationForCannonboltPhase(motion.cannonboltPhase));
+      movementState = cannonboltStateForPhase(motion.cannonboltPhase);
+    } else {
+      const clock = stepAttackClock({
+        animationName: motion.attack,
+        attackerId,
+        now,
+        startedAt: motion.attackStartedAt,
+        lockSeconds: config.attackLockSeconds,
+      });
+      if (clock.ended) {
+        motion.attack = null;
+      }
+      publishCombat(clock.attackId, clock.phase, clock.activeFrames);
+
+      if (!motion.attack) {
+        const buffered = consumeAttack(input, config, motion, now);
+        if (buffered) {
+          requestAnimation(buffered);
+          movementState = movementSnapshot();
+        } else {
+          movementState = movementSnapshot();
+          requestAnimation(animationForMovement(config, movementState));
+        }
       } else {
         movementState = movementSnapshot();
-        requestAnimation(animationForMovement(config, movementState));
       }
-    } else {
-      movementState = movementSnapshot();
     }
 
     const halfExtent = capsuleHalfExtent(config);
