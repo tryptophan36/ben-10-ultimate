@@ -9,7 +9,10 @@ import { HitLocationMarker } from "@/components/game/combat/HitLocationMarker";
 import { HitstopClock } from "@/components/game/combat/HitstopClock";
 import { HitstopSim } from "@/components/game/combat/HitstopSim";
 import { ImpactBursts } from "@/components/game/combat/ImpactBursts";
-import { TrainingDummy } from "@/components/game/combat/TrainingDummy";
+import {
+  TrainingDummy,
+  trainingDummyHeight,
+} from "@/components/game/combat/TrainingDummy";
 import { Cannonbolt } from "@/components/game/characters/Cannonbolt";
 import { DebugHud } from "@/components/game/DebugHud";
 import { Player } from "@/components/game/Player";
@@ -19,7 +22,11 @@ import { resetHitstop } from "@/lib/game/combat/hitstop";
 import { clearImpacts } from "@/lib/game/combat/impactVfx";
 import { GRAVITY, PHYSICS_TIMESTEP, physicsGroups } from "@/lib/game/physics";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { resetCombat } from "@/store/slices/combatSlice";
+import {
+  resetCombat,
+  TRAINING_DUMMY_B_ID,
+  TRAINING_DUMMY_C_ID,
+} from "@/store/slices/combatSlice";
 import { endSession, markSessionActive } from "@/store/slices/gameSlice";
 
 function Lighting() {
@@ -46,6 +53,8 @@ function Lighting() {
 }
 
 const WORLD_GRAVITY: [number, number, number] = [0, GRAVITY, 0];
+const DUMMY_B_POSITION: [number, number, number] = [1.8, trainingDummyHeight(), -0.8];
+const DUMMY_C_POSITION: [number, number, number] = [0, trainingDummyHeight(), 6];
 const GROUND_SIZE = 24;
 const GROUND_COLLIDER_ARGS: [number, number, number] = [GROUND_SIZE / 2, 0.25, GROUND_SIZE / 2];
 const GROUND_COLLIDER_POSITION: [number, number, number] = [0, -0.25, 0];
@@ -126,6 +135,16 @@ export function GameCanvas() {
               <Player key={selectedCharacter} />
             )}
             <TrainingDummy />
+            <TrainingDummy
+              id={TRAINING_DUMMY_B_ID}
+              position={DUMMY_B_POSITION}
+              label="Dummy B"
+            />
+            <TrainingDummy
+              id={TRAINING_DUMMY_C_ID}
+              position={DUMMY_C_POSITION}
+              label="Dummy C"
+            />
           </Physics>
         </Suspense>
       </Canvas>

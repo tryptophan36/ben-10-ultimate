@@ -201,6 +201,7 @@ export function Cannonbolt() {
         </group>
       </RigidBody>
       <AttackHitboxes characterId={character.id} model={ball} visualRef={visualRef} />
+      <AttackHitboxes characterId={character.id} model={standing} visualRef={visualRef} />
     </>
   );
 }

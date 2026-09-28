@@ -15,6 +15,7 @@ export const CANNONBOLT_CLIPS = {
   uncurl: "CB_Uncurl",
   jump: "CB_Jump",
   roll: "CB_Roll",
+  bodySlam: "CB_BodySlam",
 } as const;
 
 export const CANNONBOLT_LOOPING = [CANNONBOLT_CLIPS.idle, CANNONBOLT_CLIPS.roll] as const;
@@ -23,6 +24,7 @@ export const CANNONBOLT_ONE_SHOTS = [
   CANNONBOLT_CLIPS.curl,
   CANNONBOLT_CLIPS.uncurl,
   CANNONBOLT_CLIPS.jump,
+  CANNONBOLT_CLIPS.bodySlam,
 ] as const;
 
 /** Shown in the debug HUD. Curl and uncurl stay inside rolling and standing. */
@@ -64,6 +66,11 @@ export function cannonboltFormForPhase(phase: CannonboltPhase): CannonboltForm {
 /** Grounded idle or an already-formed roll. Curl, uncurl, and jumps cannot start it. */
 export function cannonboltCanFastRoll(phase: CannonboltPhase, grounded: boolean): boolean {
   return grounded && (phase === "standing" || phase === "rolling");
+}
+
+/** Same grounded poses as Fast Roll. An airborne Cannonbolt cannot start it. */
+export function cannonboltCanBodySlam(phase: CannonboltPhase, grounded: boolean): boolean {
+  return cannonboltCanFastRoll(phase, grounded);
 }
 
 export function cannonboltStateForPhase(phase: CannonboltPhase): CannonboltState {

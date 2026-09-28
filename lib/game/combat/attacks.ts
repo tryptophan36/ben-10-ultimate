@@ -3,6 +3,8 @@ import {
   ATTACK_PHASE,
   type AttackDefinition,
   type AttackPhase,
+  type AttackPose,
+  type PoseWindow,
 } from "@/lib/game/combat/types";
 
 /**
@@ -127,11 +129,58 @@ export const CANNONBOLT_FAST_ROLL: AttackDefinition = {
   hitboxes: [{ bone: "Cannonbolt_Ball", radius: 0.65, offset: FAST_ROLL_FORWARD }],
 };
 
+/**
+ * CB_BodySlam is 36 frames at 25 fps (1.44s). The root stays put, so the clip
+ * is a pose: frames 1–8 crouch, 8–24 curl into the dive, 25–29 impact,
+ * 29–36 stand up. World motion is the character controller. 60 Hz: 8 startup,
+ * airborne until Rapier lands, 6 impact, 18 recovery. The sphere is the
+ * landing AOE, centered on the body, and it opens only in the impact phase.
+ */
+const BODY_SLAM_FRAME_RATE = 25;
+const BODY_SLAM_STARTUP = 8;
+const BODY_SLAM_ACTIVE = 6;
+const BODY_SLAM_RECOVERY = 18;
+const BODY_SLAM_CLIP_SECONDS = 36 / BODY_SLAM_FRAME_RATE;
+const BODY_SLAM_CENTER: readonly [number, number, number] = [0, 0.9, 0];
+
+function bodySlamFrame(frame: number): number {
+  return frame / BODY_SLAM_FRAME_RATE;
+}
+
+export const CANNONBOLT_BODY_SLAM: AttackDefinition = {
+  id: "CB_BodySlam",
+  characterId: "cannonbolt",
+  kind: "melee",
+  animation: "CB_BodySlam",
+  damage: 35,
+  startup: BODY_SLAM_STARTUP,
+  active: BODY_SLAM_ACTIVE,
+  recovery: BODY_SLAM_RECOVERY,
+  knockback: { horizontal: 16, vertical: 4.5 },
+  knockbackStyle: "radial",
+  hitstopMs: 110,
+  cameraShake: { amplitude: 0.16, duration: 0.32, frequency: 14 },
+  impactScale: 2.2,
+  hitstun: 0.6,
+  clipDuration: BODY_SLAM_CLIP_SECONDS,
+  interruptible: false,
+  multiHit: false,
+  clock: "landing",
+  hitboxes: [{ bone: "Cannonbolt_Root", radius: 2.75, offset: BODY_SLAM_CENTER }],
+  pose: {
+    startup: { start: bodySlamFrame(1), end: bodySlamFrame(8) },
+    airborne: { start: bodySlamFrame(8), end: bodySlamFrame(24) },
+    active: { start: bodySlamFrame(25), end: bodySlamFrame(29) },
+    recovery: { start: bodySlamFrame(29), end: bodySlamFrame(36) },
+  },
+};
+
 const ATTACKS: AttackDefinition[] = [
   FOUR_ARMS_PUNCH_LEFT,
   FOUR_ARMS_PUNCH_RIGHT,
   FOUR_ARMS_HEAVY_PUNCH,
   CANNONBOLT_FAST_ROLL,
+  CANNONBOLT_BODY_SLAM,
 ];
 
 export type ActiveHitbox = {
@@ -176,6 +225,55 @@ export function meleeHitboxes(characterId: string): ActiveHitbox[] {
   }
 
   return [...merged.values()];
+}
+
+function poseWindow(pose: AttackPose, phase: AttackPhase): PoseWindow | null {
+  switch (phase) {
+    case ATTACK_PHASE.startup:
+      return pose.startup;
+    case ATTACK_PHASE.airborne:
+      return pose.airborne;
+    case ATTACK_PHASE.active:
+      return pose.active;
+    case ATTACK_PHASE.recovery:
+      return pose.recovery;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Clip time for the current physics phase. Airborne holds the dive pose.
+ * Startup, impact, and recovery scrub their windows. Returns null when this
+ * attack has no pose, or the phase is idle.
+ */
+export function landingPoseTime(
+  attack: AttackDefinition,
+  phase: AttackPhase,
+  elapsedFrame: number,
+): number | null {
+  if (!attack.pose) {
+    return null;
+  }
+  const window = poseWindow(attack.pose, phase);
+  if (!window) {
+    return null;
+  }
+
+  if (phase === ATTACK_PHASE.airborne) {
+    const time = window.start + Math.max(0, elapsedFrame) * PHYSICS_TIMESTEP;
+    return Math.min(window.end, Math.max(window.start, time));
+  }
+
+  const span =
+    phase === ATTACK_PHASE.startup
+      ? attack.startup
+      : phase === ATTACK_PHASE.active
+        ? attack.active
+        : attack.recovery;
+  const u =
+    span <= 1 ? 1 : Math.min(1, Math.max(0, (elapsedFrame - 1) / (span - 1)));
+  return window.start + (window.end - window.start) * u;
 }
 
 export function phaseForFrame(attack: AttackDefinition, frame: number): AttackPhase {

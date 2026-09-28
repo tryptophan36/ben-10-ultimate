@@ -2,6 +2,12 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import { ATTACK_PHASE, type AttackPhase } from "@/lib/game/combat/types";
 
 export const TRAINING_DUMMY_ID = "training-dummy";
+export const TRAINING_DUMMY_B_ID = "training-dummy-b";
+export const TRAINING_DUMMY_C_ID = "training-dummy-c";
+
+function freshTarget(): TargetCombatState {
+  return { hp: 100, maxHp: 100, hitstun: false };
+}
 
 export type TargetCombatState = {
   hp: number;
@@ -31,11 +37,9 @@ const initialState: CombatState = {
   lastActiveFrames: 0,
   lastDamage: null,
   targets: {
-    [TRAINING_DUMMY_ID]: {
-      hp: 100,
-      maxHp: 100,
-      hitstun: false,
-    },
+    [TRAINING_DUMMY_ID]: freshTarget(),
+    [TRAINING_DUMMY_B_ID]: freshTarget(),
+    [TRAINING_DUMMY_C_ID]: freshTarget(),
   },
 };
 
@@ -99,11 +103,9 @@ const combatSlice = createSlice({
         lastActiveFrames: 0,
         lastDamage: null,
         targets: {
-          [TRAINING_DUMMY_ID]: {
-            hp: 100,
-            maxHp: 100,
-            hitstun: false,
-          },
+          [TRAINING_DUMMY_ID]: freshTarget(),
+          [TRAINING_DUMMY_B_ID]: freshTarget(),
+          [TRAINING_DUMMY_C_ID]: freshTarget(),
         },
       };
     },

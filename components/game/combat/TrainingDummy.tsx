@@ -109,6 +109,7 @@ function queueKnockback(body: RapierRigidBody, request: DamageRequest): void {
     position.z,
     request.attackerX,
     request.attackerZ,
+    request.knockbackStyle ?? "facing",
   );
   const gravity = body.gravityScale();
   stopBody(body);
@@ -129,9 +130,24 @@ function queueKnockback(body: RapierRigidBody, request: DamageRequest): void {
   });
 }
 
-export function TrainingDummy() {
+type TrainingDummyProps = {
+  id?: string;
+  position?: [number, number, number];
+  label?: string;
+};
+
+export function trainingDummyHeight(): number {
+  return DUMMY_HALF_HEIGHT + DUMMY_RADIUS;
+}
+
+export function TrainingDummy({
+  id = TRAINING_DUMMY_ID,
+  position = DUMMY_SPAWN,
+  label = "Training Dummy",
+}: TrainingDummyProps = {}) {
+  const spawn = position;
   const dispatch = useAppDispatch();
-  const target = useAppSelector((state) => state.combat.targets[TRAINING_DUMMY_ID]);
+  const target = useAppSelector((state) => state.combat.targets[id]);
   const showHitboxes = useAppSelector((state) => state.combat.showHitboxes);
   const bodyRef = useRef<RapierRigidBody>(null);
   const meshRef = useRef<Mesh>(null);
@@ -176,7 +192,7 @@ export function TrainingDummy() {
 
       dispatch(
         applyDamage({
-          targetId: TRAINING_DUMMY_ID,
+          targetId: id,
           amount: request.amount,
           serial: request.attackSerial,
         }),
@@ -212,12 +228,12 @@ export function TrainingDummy() {
       flashUntil.current = performance.now() + HIT_FLASH_MS;
       if (!stunPublished.current) {
         stunPublished.current = true;
-        dispatch(setTargetHitstun({ targetId: TRAINING_DUMMY_ID, hitstun: true }));
+        dispatch(setTargetHitstun({ targetId: id, hitstun: true }));
       }
 
       return true;
     },
-    [dispatch],
+    [dispatch, id],
   );
 
   const takeDamageRef = useRef(takeDamage);
@@ -234,7 +250,7 @@ export function TrainingDummy() {
       return;
     }
     detachRef.current = registerHurtbox(body.handle, {
-      id: TRAINING_DUMMY_ID,
+      id,
       takeDamage: (request) => takeDamageRef.current(request),
     });
   });
@@ -251,7 +267,7 @@ export function TrainingDummy() {
       hitstunLeft.current = Math.max(0, hitstunLeft.current - Math.min(delta, 0.05));
       if (hitstunLeft.current === 0 && stunPublished.current) {
         stunPublished.current = false;
-        dispatch(setTargetHitstun({ targetId: TRAINING_DUMMY_ID, hitstun: false }));
+        dispatch(setTargetHitstun({ targetId: id, hitstun: false }));
       }
     }
 
@@ -283,7 +299,7 @@ export function TrainingDummy() {
     }
     if (position.y < -2) {
       body.setTranslation(
-        { x: DUMMY_SPAWN[0], y: DUMMY_SPAWN[1], z: DUMMY_SPAWN[2] },
+        { x: spawn[0], y: spawn[1], z: spawn[2] },
         true,
       );
       body.setLinvel({ x: 0, y: 0, z: 0 }, true);
@@ -297,9 +313,9 @@ export function TrainingDummy() {
   return (
     <RigidBody
       ref={bodyRef}
-      name={TRAINING_DUMMY_ID}
+      name={id}
       colliders={false}
-      position={DUMMY_SPAWN}
+      position={spawn}
       enabledRotations={LOCKED_ROTATIONS}
       linearDamping={0.6}
       angularDamping={1}
@@ -326,7 +342,7 @@ export function TrainingDummy() {
           className="whitespace-nowrap rounded bg-black/75 px-2 py-1 text-center font-mono text-white"
         >
           <div className="text-[10px] tracking-wider text-zinc-400 uppercase">
-            Training Dummy
+            {label}
           </div>
           <div className={target?.hitstun ? "text-red-300" : "text-white"}>
             {hp} / {maxHp}

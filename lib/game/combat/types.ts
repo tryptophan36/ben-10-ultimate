@@ -3,6 +3,8 @@ import type { CameraShakeSpec } from "@/lib/game/camera/cameraShake";
 export const ATTACK_PHASE = {
   idle: "IDLE",
   startup: "ATTACK_STARTUP",
+  /** In the air, waiting for a real landing. Hitboxes stay off. */
+  airborne: "AIRBORNE",
   active: "ATTACK_ACTIVE",
   recovery: "ATTACK_RECOVERY",
 } as const;
@@ -21,6 +23,24 @@ export type MeleeHitbox = {
   radius: number;
   /** Bone-local meters. Shifts the sphere from the joint onto the fist. */
   offset?: readonly [number, number, number];
+};
+
+/** Clip seconds. Visual only — never used to detect a landing. */
+export type PoseWindow = {
+  start: number;
+  end: number;
+};
+
+/**
+ * How a landing attack shows its clip. Airborne advances in real time and
+ * holds at `end` until Rapier reports ground. The other windows scrub across
+ * that phase's physics frames.
+ */
+export type AttackPose = {
+  startup: PoseWindow;
+  airborne: PoseWindow;
+  active: PoseWindow;
+  recovery: PoseWindow;
 };
 
 /**
@@ -53,9 +73,15 @@ export type AttackDefinition = {
   /**
    * clip follows the attack animation from frame 0.
    * elapsed counts physics frames from the moment the attack starts, so a
-   * move can reuse a looping locomotion clip. Omitted attacks follow the clip.
+   * move can reuse a looping locomotion clip.
+   * landing stays airborne until Rapier reports ground, then opens the active window.
+   * Omitted attacks follow the clip.
    */
-  clock?: "clip" | "elapsed";
+  clock?: "clip" | "elapsed" | "landing";
+  /** facing shoves along the attacker's yaw. radial shoves away from their position. */
+  knockbackStyle?: "facing" | "radial";
+  /** Present only when the clip is a pose layered on the physics phase. */
+  pose?: AttackPose;
 };
 
 export type DamageRequest = {
@@ -74,6 +100,7 @@ export type DamageRequest = {
   hitstopMs: number;
   cameraShake: CameraShakeSpec;
   impactScale: number;
+  knockbackStyle?: "facing" | "radial";
 };
 
 export type Damageable = {

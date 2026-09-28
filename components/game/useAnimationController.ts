@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { LoopOnce, LoopRepeat, type AnimationAction, type AnimationMixer } from "three";
+import { attackForAnimation, landingPoseTime } from "@/lib/game/combat/attacks";
 import { bindHitstopMixer } from "@/lib/game/combat/hitstop";
-import { publishClipClock } from "@/lib/game/combat/runtime";
+import { attackRuntime, publishClipClock } from "@/lib/game/combat/runtime";
 import {
   DEFAULT_ANIMATION,
   isLoopingAnimation,
@@ -19,17 +20,18 @@ function startClip(
   action: AnimationAction,
   previous: AnimationAction | null,
   looping: boolean,
+  snap: boolean,
 ) {
   action.enabled = true;
   action.setEffectiveTimeScale(1);
   action.setLoop(looping ? LoopRepeat : LoopOnce, looping ? Infinity : 1);
   action.clampWhenFinished = !looping;
 
-  const switchingMixer = Boolean(
-    previous && previous !== action && previous.getMixer() !== action.getMixer(),
-  );
+  const cut =
+    snap ||
+    Boolean(previous && previous !== action && previous.getMixer() !== action.getMixer());
   if (previous && previous !== action) {
-    if (switchingMixer) {
+    if (cut) {
       previous.stop();
       previous.setEffectiveWeight(0);
     } else {
@@ -38,7 +40,7 @@ function startClip(
   }
 
   action.reset();
-  if (previous && previous !== action && !switchingMixer) {
+  if (previous && previous !== action && !cut) {
     action.fadeIn(FADE_SECONDS);
   } else {
     action.setEffectiveWeight(1);
@@ -96,6 +98,33 @@ export function useAnimationController({
   useFrame(() => {
     const action = activeActionRef.current;
     if (!action) {
+      return;
+    }
+    const clip = action.getClip();
+    const attack = attackForAnimation(clip.name);
+    if (!attack?.pose || !attackRuntime.live || attackRuntime.attackId !== attack.id) {
+      return;
+    }
+    const time = landingPoseTime(
+      attack,
+      attackRuntime.phase,
+      attackRuntime.elapsedFrame,
+    );
+    if (time === null) {
+      return;
+    }
+    // Pose follows the physics phase. Time scale stays at 0 so the mixer
+    // cannot advance the clip into a landing on its own.
+    action.enabled = true;
+    action.paused = false;
+    action.setEffectiveWeight(1);
+    action.setEffectiveTimeScale(0);
+    action.time = time;
+  }, -1);
+
+  useFrame(() => {
+    const action = activeActionRef.current;
+    if (!action) {
       publishClipClock("", 0);
       return;
     }
@@ -133,7 +162,8 @@ export function useAnimationController({
     }
 
     const previous = activeActionRef.current;
-    startClip(action, previous, isLoopingAnimation(currentAnimation));
+    const snap = Boolean(attackForAnimation(currentAnimation)?.pose);
+    startClip(action, previous, isLoopingAnimation(currentAnimation), snap);
     activeActionRef.current = action;
     bindHitstopMixer(action.getMixer());
   }, [actions, animationEpoch, currentAnimation]);

@@ -30,6 +30,8 @@ type AttackRuntime = {
   seenClipStart: boolean;
   /** Physics frames since this attack began. Used by elapsed-clock moves. */
   elapsedFrame: number;
+  /** Body Slam has left the ground and can accept a landing. */
+  leftGround: boolean;
 };
 
 export const attackRuntime: AttackRuntime = {
@@ -41,10 +43,39 @@ export const attackRuntime: AttackRuntime = {
   activeFrames: 0,
   seenClipStart: false,
   elapsedFrame: 0,
+  leftGround: false,
 };
 
 const hurtboxes = new Map<number, Damageable>();
 const hitTargets = new Set<string>();
+
+let targetsHit = 0;
+const hitListeners = new Set<() => void>();
+
+function setTargetsHit(count: number): void {
+  if (targetsHit === count) {
+    return;
+  }
+  targetsHit = count;
+  for (const listener of hitListeners) {
+    listener();
+  }
+}
+
+export function subscribeAttackHits(listener: () => void): () => void {
+  hitListeners.add(listener);
+  return () => {
+    hitListeners.delete(listener);
+  };
+}
+
+export function getAttackHits(): number {
+  return targetsHit;
+}
+
+export function getAttackHitsServerSnapshot(): number {
+  return 0;
+}
 
 export function registerHurtbox(bodyHandle: number, target: Damageable): () => void {
   hurtboxes.set(bodyHandle, target);
@@ -68,6 +99,8 @@ export type AttackClock = {
   phase: AttackPhase;
   ended: boolean;
   activeFrames: number | null;
+  /** Body Slam should apply the jump velocity this step. */
+  launch?: boolean;
 };
 
 const IDLE_CLOCK: AttackClock = {
@@ -86,7 +119,9 @@ function beginAttack(attack: AttackDefinition, attackerId: string): void {
   attackRuntime.activeFrames = 0;
   attackRuntime.seenClipStart = false;
   attackRuntime.elapsedFrame = 0;
+  attackRuntime.leftGround = false;
   hitTargets.clear();
+  setTargetsHit(0);
 }
 
 export function endAttackInstance(): void {
@@ -96,7 +131,110 @@ export function endAttackInstance(): void {
   attackRuntime.activeFrames = 0;
   attackRuntime.seenClipStart = false;
   attackRuntime.elapsedFrame = 0;
+  attackRuntime.leftGround = false;
   hitTargets.clear();
+}
+
+function finishLanding(activeFrames: number | null): AttackClock {
+  endAttackInstance();
+  return {
+    attackId: null,
+    phase: ATTACK_PHASE.idle,
+    ended: true,
+    activeFrames,
+  };
+}
+
+/**
+ * Startup is a fixed windup. Air time lasts until Rapier says the body is
+ * supported again. The active window opens on that landing and then closes.
+ */
+function stepLandingAttack(
+  attack: AttackDefinition,
+  attackerId: string,
+  grounded: boolean,
+): AttackClock {
+  if (!attackRuntime.live || attackRuntime.attackId !== attack.id) {
+    beginAttack(attack, attackerId);
+  }
+
+  if (attackRuntime.phase === ATTACK_PHASE.startup) {
+    const frame = attackRuntime.elapsedFrame;
+    attackRuntime.elapsedFrame += 1;
+    if (frame < attack.startup) {
+      return {
+        attackId: attack.id,
+        phase: ATTACK_PHASE.startup,
+        ended: false,
+        activeFrames: commitPhase(ATTACK_PHASE.startup),
+      };
+    }
+    attackRuntime.elapsedFrame = 0;
+    return {
+      attackId: attack.id,
+      phase: ATTACK_PHASE.airborne,
+      ended: false,
+      activeFrames: commitPhase(ATTACK_PHASE.airborne),
+      launch: true,
+    };
+  }
+
+  if (attackRuntime.phase === ATTACK_PHASE.airborne) {
+    if (!grounded) {
+      attackRuntime.leftGround = true;
+    }
+    if (grounded && attackRuntime.leftGround) {
+      attackRuntime.elapsedFrame = 1;
+      return {
+        attackId: attack.id,
+        phase: ATTACK_PHASE.active,
+        ended: false,
+        activeFrames: commitPhase(ATTACK_PHASE.active),
+      };
+    }
+    // Counts how long the dive pose has played. Landing ignores this.
+    attackRuntime.elapsedFrame += 1;
+    return {
+      attackId: attack.id,
+      phase: ATTACK_PHASE.airborne,
+      ended: false,
+      activeFrames: commitPhase(ATTACK_PHASE.airborne),
+    };
+  }
+
+  if (attackRuntime.phase === ATTACK_PHASE.active) {
+    if (attackRuntime.elapsedFrame >= attack.active) {
+      attackRuntime.elapsedFrame = 1;
+      return {
+        attackId: attack.id,
+        phase: ATTACK_PHASE.recovery,
+        ended: false,
+        activeFrames: commitPhase(ATTACK_PHASE.recovery),
+      };
+    }
+    attackRuntime.elapsedFrame += 1;
+    return {
+      attackId: attack.id,
+      phase: ATTACK_PHASE.active,
+      ended: false,
+      activeFrames: commitPhase(ATTACK_PHASE.active),
+    };
+  }
+
+  if (attackRuntime.phase === ATTACK_PHASE.recovery) {
+    if (attackRuntime.elapsedFrame >= attack.recovery) {
+      return finishLanding(null);
+    }
+    attackRuntime.elapsedFrame += 1;
+    return {
+      attackId: attack.id,
+      phase: ATTACK_PHASE.recovery,
+      ended: false,
+      activeFrames: commitPhase(ATTACK_PHASE.recovery),
+    };
+  }
+
+  return finishLanding(null);
 }
 
 function stepElapsedAttack(attack: AttackDefinition, attackerId: string): AttackClock {
@@ -143,6 +281,8 @@ export function stepAttackClock(input: {
   now: number;
   startedAt: number;
   lockSeconds: number;
+  /** Previous Rapier ground result. Used by landing-clock attacks. */
+  grounded?: boolean;
 }): AttackClock {
   if (isHitstopActive()) {
     return {
@@ -202,6 +342,10 @@ export function stepAttackClock(input: {
 
   if (attack.clock === "elapsed") {
     return stepElapsedAttack(attack, input.attackerId);
+  }
+
+  if (attack.clock === "landing") {
+    return stepLandingAttack(attack, input.attackerId, input.grounded === true);
   }
 
   if (!attackRuntime.live || attackRuntime.attackId !== attack.id) {
@@ -274,7 +418,7 @@ export function tryHit(
     hitTargets.add(key);
   }
 
-  return target.takeDamage({
+  const connected = target.takeDamage({
     amount: attack.damage,
     knockback: attack.knockback,
     hitstun: attack.hitstun,
@@ -290,5 +434,10 @@ export function tryHit(
     hitstopMs: attack.hitstopMs,
     cameraShake: attack.cameraShake,
     impactScale: attack.impactScale,
+    knockbackStyle: attack.knockbackStyle ?? "facing",
   });
+  if (connected) {
+    setTargetsHit(targetsHit + 1);
+  }
+  return connected;
 }

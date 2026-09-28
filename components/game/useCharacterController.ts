@@ -15,6 +15,7 @@ import {
   animationForCannonboltPhase,
   CANNONBOLT_FAST_ROLL_ACCELERATION,
   CANNONBOLT_FAST_ROLL_SPEED,
+  cannonboltCanBodySlam,
   cannonboltCanFastRoll,
   cannonboltFormForPhase,
   cannonboltHoldsPlanar,
@@ -24,7 +25,11 @@ import {
   type CannonboltPhase,
   type CannonboltState,
 } from "@/lib/game/cannonbolt";
-import { attackForAnimation, CANNONBOLT_FAST_ROLL } from "@/lib/game/combat/attacks";
+import {
+  attackForAnimation,
+  CANNONBOLT_BODY_SLAM,
+  CANNONBOLT_FAST_ROLL,
+} from "@/lib/game/combat/attacks";
 import { isHitstopActive } from "@/lib/game/combat/hitstop";
 import {
   attackRuntime,
@@ -217,6 +222,9 @@ export function useCharacterController({
     (clipName: string) => {
       const motion = motionRef.current;
       if (config.movement === "cannonbolt") {
+        if (motion.attack) {
+          return null;
+        }
         const nextPhase = cannonboltPhaseAfterClip(motion.cannonboltPhase, clipName, {
           grounded: motion.grounded,
           hasMoveInput: motion.hasMoveInput,
@@ -320,9 +328,9 @@ export function useCharacterController({
     const hasMoveInput = wish.current.lengthSq() > 0.0001;
     let acceleration = config.acceleration;
     let speedCap: number | null = null;
+    let slamLaunch = false;
+    let lockPlanar = false;
     if (config.movement === "cannonbolt") {
-      input.heavyPunch = false;
-
       const driveFastRoll = (phase: AttackPhase) => {
         if (phase !== ATTACK_PHASE.startup && phase !== ATTACK_PHASE.active) {
           return;
@@ -356,14 +364,55 @@ export function useCharacterController({
         }
       };
 
-      tickFastRoll();
+      const tickBodySlam = () => {
+        if (motion.attack !== CANNONBOLT_BODY_SLAM.animation) {
+          return;
+        }
+        const clock = stepAttackClock({
+          animationName: motion.attack,
+          attackerId,
+          now,
+          startedAt: motion.attackStartedAt,
+          lockSeconds: config.attackLockSeconds,
+          grounded: motion.grounded,
+        });
+        if (clock.launch) {
+          slamLaunch = true;
+        }
+        if (clock.ended) {
+          motion.attack = null;
+        } else {
+          lockPlanar = true;
+        }
+        publishCombat(clock.attackId, clock.phase, clock.activeFrames);
+      };
+
+      if (motion.attack) {
+        input.punch = false;
+        input.heavyPunch = false;
+      }
+
+      if (motion.attack === CANNONBOLT_FAST_ROLL.animation) {
+        tickFastRoll();
+      } else if (motion.attack === CANNONBOLT_BODY_SLAM.animation) {
+        tickBodySlam();
+      }
+
       if (!motion.attack && input.punch) {
         input.punch = false;
+        input.heavyPunch = false;
         if (!input.jump && cannonboltCanFastRoll(motion.cannonboltPhase, motion.grounded)) {
           motion.attack = CANNONBOLT_FAST_ROLL.animation;
           motion.attackStartedAt = now;
           motion.cannonboltPhase = "rolling";
           tickFastRoll();
+        }
+      } else if (!motion.attack && input.heavyPunch) {
+        input.heavyPunch = false;
+        if (cannonboltCanBodySlam(motion.cannonboltPhase, motion.grounded)) {
+          motion.attack = CANNONBOLT_BODY_SLAM.animation;
+          motion.attackStartedAt = now;
+          tickBodySlam();
         }
       }
     }
@@ -375,7 +424,7 @@ export function useCharacterController({
     const targetSpeed = speedCap ?? (input.run ? config.runSpeed : config.walkSpeed);
     const targetX = !holdPlanar && propel ? wish.current.x * targetSpeed : 0;
     const targetZ = !holdPlanar && propel ? wish.current.z * targetSpeed : 0;
-    if (holdPlanar) {
+    if (lockPlanar || holdPlanar) {
       motion.vx = 0;
       motion.vz = 0;
     } else {
@@ -395,8 +444,15 @@ export function useCharacterController({
 
     const jumpPressed = input.jump;
     input.jump = false;
-    if (
+    const bodySlamLocked = motion.attack === CANNONBOLT_BODY_SLAM.animation;
+    if (slamLaunch) {
+      motion.vy = config.jumpVelocity;
+      motion.canJump = false;
+      motion.grounded = false;
+      motion.coyote = 0;
+    } else if (
       jumpPressed &&
+      !bodySlamLocked &&
       motion.canJump &&
       (motion.grounded || motion.coyote > 0)
     ) {
@@ -472,7 +528,11 @@ export function useCharacterController({
 
     let movementState: MovementState | CannonboltState;
     if (config.movement === "cannonbolt") {
-      if (motion.attack && !motion.grounded && motion.vy > 0.05) {
+      if (
+        motion.attack === CANNONBOLT_FAST_ROLL.animation &&
+        !motion.grounded &&
+        motion.vy > 0.05
+      ) {
         const activeFrames =
           attackRuntime.phase === ATTACK_PHASE.active ? attackRuntime.activeFrames : null;
         motion.attack = null;
@@ -480,17 +540,22 @@ export function useCharacterController({
         publishCombat(null, ATTACK_PHASE.idle, activeFrames);
       }
 
-      if (motion.attack) {
+      if (motion.attack === CANNONBOLT_BODY_SLAM.animation) {
+        motion.cannonboltPhase =
+          attackRuntime.phase === ATTACK_PHASE.airborne ? "jumping" : "standing";
+        requestAnimation(motion.attack);
+      } else if (motion.attack) {
         motion.cannonboltPhase = "rolling";
+        requestAnimation(animationForCannonboltPhase(motion.cannonboltPhase));
       } else {
         motion.cannonboltPhase = advanceCannonboltPhase(motion.cannonboltPhase, {
           grounded: motion.grounded,
           hasMoveInput,
         });
+        requestAnimation(animationForCannonboltPhase(motion.cannonboltPhase));
       }
       cannonboltView.form = cannonboltFormForPhase(motion.cannonboltPhase);
       cannonboltView.speed = actualSpeed;
-      requestAnimation(animationForCannonboltPhase(motion.cannonboltPhase));
       movementState = cannonboltStateForPhase(motion.cannonboltPhase);
     } else {
       const clock = stepAttackClock({

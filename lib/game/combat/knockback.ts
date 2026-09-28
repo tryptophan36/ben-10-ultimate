@@ -18,7 +18,26 @@ export function knockbackVelocity(
   targetZ: number,
   attackerX: number,
   attackerZ: number,
+  style: "facing" | "radial" = "facing",
 ): KnockbackVelocity {
+  if (style === "radial") {
+    let x = targetX - attackerX;
+    let z = targetZ - attackerZ;
+    const length = Math.hypot(x, z);
+    if (length < 0.05) {
+      x = Math.sin(facingYaw);
+      z = Math.cos(facingYaw);
+    } else {
+      x /= length;
+      z /= length;
+    }
+    return {
+      x: x * knockback.horizontal,
+      y: knockback.vertical,
+      z: z * knockback.horizontal,
+    };
+  }
+
   let x = Math.sin(facingYaw);
   let z = Math.cos(facingYaw);
   const awayX = targetX - attackerX;

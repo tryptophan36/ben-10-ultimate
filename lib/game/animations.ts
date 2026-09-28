@@ -15,6 +15,7 @@ export const ONE_SHOT_ANIMATIONS = [
   "CB_Curl",
   "CB_Uncurl",
   "CB_Jump",
+  "CB_BodySlam",
 ] as const;
 
 export const DEFAULT_ANIMATION = "FA_Idle";
