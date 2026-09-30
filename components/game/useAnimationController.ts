@@ -1,16 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { LoopOnce, LoopRepeat, type AnimationAction, type AnimationMixer } from "three";
+import { isLoopingAnimation, isOneShotAnimation } from "@/lib/game/animations";
+import { characters } from "@/lib/game/characters";
 import { attackForAnimation, landingPoseTime } from "@/lib/game/combat/attacks";
 import { bindHitstopMixer } from "@/lib/game/combat/hitstop";
 import { attackRuntime, publishClipClock } from "@/lib/game/combat/runtime";
-import {
-  DEFAULT_ANIMATION,
-  isLoopingAnimation,
-  isOneShotAnimation,
-} from "@/lib/game/animations";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { playAnimation, registerAnimations } from "@/store/slices/gameSlice";
 
@@ -48,7 +45,7 @@ function startClip(
   action.play();
 }
 
-type AnimationLibrary = {
+export type AnimationLibrary = {
   actions: {
     [name: string]: AnimationAction | null | undefined;
   };
@@ -56,44 +53,56 @@ type AnimationLibrary = {
   names: string[];
 };
 
-type AnimationControllerInput = AnimationLibrary & {
+type AnimationControllerInput = {
+  libraries: readonly AnimationLibrary[];
   onOneShotFinished?: (clipName: string) => string | null;
-  /** Clips that live on a second model, such as Cannonbolt's ball. */
-  secondary?: AnimationLibrary;
 };
 
+function findAction(
+  libraries: readonly AnimationLibrary[],
+  name: string,
+): AnimationAction | null {
+  for (const library of libraries) {
+    const action = library.actions[name];
+    if (action) {
+      return action;
+    }
+  }
+  return null;
+}
+
 export function useAnimationController({
-  actions,
-  mixer,
-  names,
+  libraries,
   onOneShotFinished,
-  secondary,
 }: AnimationControllerInput) {
   const dispatch = useAppDispatch();
+  const selectedCharacter = useAppSelector((state) => state.game.selectedCharacter);
+  const clips = characters[selectedCharacter].clips;
+  const defaultAnimation = characters[selectedCharacter].defaultAnimation;
   const currentAnimation = useAppSelector((state) => state.game.currentAnimation);
   const animationEpoch = useAppSelector((state) => state.game.animationEpoch);
-  const actionsRef = useRef(actions);
-  const secondaryActionsRef = useRef(secondary?.actions);
+  const librariesRef = useRef(libraries);
   const activeActionRef = useRef<AnimationAction | null>(null);
   const onOneShotFinishedRef = useRef(onOneShotFinished);
-  const secondaryNames = secondary?.names;
-  const secondaryMixer = secondary?.mixer;
 
   useEffect(() => {
-    actionsRef.current = actions;
-    secondaryActionsRef.current = secondary?.actions;
+    librariesRef.current = libraries;
   });
 
   useEffect(() => {
     onOneShotFinishedRef.current = onOneShotFinished;
   }, [onOneShotFinished]);
 
+  const primaryMixer = libraries[0]?.mixer;
   useEffect(() => {
-    bindHitstopMixer(mixer);
+    if (!primaryMixer) {
+      return;
+    }
+    bindHitstopMixer(primaryMixer);
     return () => {
       bindHitstopMixer(null);
     };
-  }, [mixer]);
+  }, [primaryMixer]);
 
   useFrame(() => {
     const action = activeActionRef.current;
@@ -105,11 +114,7 @@ export function useAnimationController({
     if (!attack?.pose || !attackRuntime.live || attackRuntime.attackId !== attack.id) {
       return;
     }
-    const time = landingPoseTime(
-      attack,
-      attackRuntime.phase,
-      attackRuntime.elapsedFrame,
-    );
+    const time = landingPoseTime(attack, attackRuntime.phase, attackRuntime.elapsedFrame);
     if (time === null) {
       return;
     }
@@ -138,40 +143,39 @@ export function useAnimationController({
     };
   }, []);
 
-  useEffect(() => {
-    if (!secondaryNames || secondaryNames.length === 0) {
-      dispatch(registerAnimations(names));
-      return;
-    }
-
-    const combined = [...names];
-    for (const name of secondaryNames) {
-      if (!combined.includes(name)) {
-        combined.push(name);
+  const registeredNames = useMemo(() => {
+    const combined: string[] = [];
+    for (const library of libraries) {
+      for (const name of library.names) {
+        if (!combined.includes(name)) {
+          combined.push(name);
+        }
       }
     }
-    dispatch(registerAnimations(combined));
-  }, [dispatch, names, secondaryNames]);
+    return combined;
+  }, [libraries]);
 
   useEffect(() => {
-    const action =
-      actionsRef.current[currentAnimation] ??
-      secondaryActionsRef.current?.[currentAnimation];
+    dispatch(registerAnimations(registeredNames));
+  }, [dispatch, registeredNames]);
+
+  useEffect(() => {
+    const action = findAction(librariesRef.current, currentAnimation);
     if (!action) {
       return;
     }
 
     const previous = activeActionRef.current;
     const snap = Boolean(attackForAnimation(currentAnimation)?.pose);
-    startClip(action, previous, isLoopingAnimation(currentAnimation), snap);
+    startClip(action, previous, isLoopingAnimation(clips, currentAnimation), snap);
     activeActionRef.current = action;
     bindHitstopMixer(action.getMixer());
-  }, [actions, animationEpoch, currentAnimation]);
+  }, [animationEpoch, clips, currentAnimation, libraries]);
 
   const onFinished = useCallback(
     (event: { action: AnimationAction }) => {
       const clipName = event.action.getClip().name;
-      if (!isOneShotAnimation(clipName)) {
+      if (!isOneShotAnimation(clips, clipName)) {
         return;
       }
       if (activeActionRef.current !== event.action) {
@@ -180,7 +184,7 @@ export function useAnimationController({
 
       const resolveNext = onOneShotFinishedRef.current;
       if (!resolveNext) {
-        dispatch(playAnimation(DEFAULT_ANIMATION));
+        dispatch(playAnimation(defaultAnimation));
         return;
       }
 
@@ -189,23 +193,18 @@ export function useAnimationController({
         dispatch(playAnimation(next));
       }
     },
-    [dispatch],
+    [clips, defaultAnimation, dispatch],
   );
 
   useEffect(() => {
-    mixer.addEventListener("finished", onFinished);
-    return () => {
-      mixer.removeEventListener("finished", onFinished);
-    };
-  }, [mixer, onFinished]);
-
-  useEffect(() => {
-    if (!secondaryMixer || secondaryMixer === mixer) {
-      return;
+    const mixers = libraries.map((library) => library.mixer);
+    for (const mixer of mixers) {
+      mixer.addEventListener("finished", onFinished);
     }
-    secondaryMixer.addEventListener("finished", onFinished);
     return () => {
-      secondaryMixer.removeEventListener("finished", onFinished);
+      for (const mixer of mixers) {
+        mixer.removeEventListener("finished", onFinished);
+      }
     };
-  }, [mixer, onFinished, secondaryMixer]);
+  }, [libraries, onFinished]);
 }

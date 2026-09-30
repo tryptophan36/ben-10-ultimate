@@ -7,8 +7,8 @@ export type GameInputState = {
   strafe: number;
   run: boolean;
   jump: boolean;
-  punch: boolean;
-  heavyPunch: boolean;
+  light: boolean;
+  heavy: boolean;
 };
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -40,8 +40,8 @@ export function useGameInput() {
     strafe: 0,
     run: false,
     jump: false,
-    punch: false,
-    heavyPunch: false,
+    light: false,
+    heavy: false,
   });
 
   useEffect(() => {
@@ -76,11 +76,11 @@ export function useGameInput() {
         return;
       }
       if (event.code === "KeyJ") {
-        state.current.punch = true;
+        state.current.light = true;
         return;
       }
       if (event.code === "KeyK") {
-        state.current.heavyPunch = true;
+        state.current.heavy = true;
         return;
       }
 

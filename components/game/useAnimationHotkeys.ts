@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import { ANIMATION_HOTKEYS } from "@/lib/game/animations";
-import { useAppDispatch } from "@/store/hooks";
+import { characters } from "@/lib/game/characters";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { playAnimation } from "@/store/slices/gameSlice";
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -16,6 +16,8 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 export function useAnimationHotkeys() {
   const dispatch = useAppDispatch();
+  const selectedCharacter = useAppSelector((state) => state.game.selectedCharacter);
+  const clips = characters[selectedCharacter].clips;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -26,16 +28,16 @@ export function useAnimationHotkeys() {
         return;
       }
 
-      const requested = ANIMATION_HOTKEYS[event.code];
-      if (!requested) {
+      const clip = clips.find((entry) => entry.debugKeys?.includes(event.code));
+      if (!clip) {
         return;
       }
 
       event.preventDefault();
-      dispatch(playAnimation(requested));
+      dispatch(playAnimation(clip.name));
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [dispatch]);
+  }, [clips, dispatch]);
 }

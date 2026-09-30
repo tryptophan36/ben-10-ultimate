@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useSyncExternalStore } from "react";
-import { characterIds, characters } from "@/lib/game/characters";
+import { characterIds, characters, controlHint } from "@/lib/game/characters";
 import {
   getFeelDebug,
   getFeelDebugServerSnapshot,
@@ -17,26 +17,10 @@ import {
   getAttackHitsServerSnapshot,
   subscribeAttackHits,
 } from "@/lib/game/combat/runtime";
-import { ATTACK_PHASE, type AttackPhase } from "@/lib/game/combat/types";
 import { getControllerDebug, subscribeControllerDebug } from "@/lib/game/runtime";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { toggleShowHitboxes, TRAINING_DUMMY_ID } from "@/store/slices/combatSlice";
 import { setSelectedCharacter } from "@/store/slices/gameSlice";
-
-function bodySlamPhaseLabel(phase: AttackPhase): string {
-  switch (phase) {
-    case ATTACK_PHASE.startup:
-      return "STARTUP";
-    case ATTACK_PHASE.airborne:
-      return "AIRBORNE";
-    case ATTACK_PHASE.active:
-      return "IMPACT";
-    case ATTACK_PHASE.recovery:
-      return "RECOVERY";
-    default:
-      return "IDLE";
-  }
-}
 
 function DebugRow({
   label,
@@ -115,32 +99,13 @@ export function DebugHud() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [dispatch, selectedCharacter]);
 
-  const isCannonbolt = selectedCharacter === "cannonbolt";
-  const movementLabel = isCannonbolt ? "State" : "Movement";
-  const movementValue = isCannonbolt
-    ? debug.movementState.replace("CANNONBOLT_", "")
-    : debug.movementState;
-  const groundedValue = isCannonbolt
-    ? String(debug.grounded)
-    : debug.grounded
-      ? "yes"
-      : "no";
-
-  const bodySlam = isCannonbolt && attackId === "CB_BodySlam";
-  const phaseLabel = bodySlam ? bodySlamPhaseLabel(attackPhase) : attackPhase;
-  const hitboxLabel = bodySlam
-    ? attackPhase === ATTACK_PHASE.active
-      ? "ACTIVE"
-      : "OFF"
-    : isCannonbolt
-      ? attackPhase === ATTACK_PHASE.active
-        ? "active"
-        : "inactive"
-      : attackPhase === ATTACK_PHASE.active && showHitboxes
-        ? "LIVE"
-        : showHitboxes
-          ? "armed"
-          : "off";
+  const hud = character.hud;
+  const attackRows = hud.attackHud({
+    attackId,
+    phase: attackPhase,
+    showHitboxes,
+  });
+  const controls = controlHint(character);
 
   const hitLabel =
     feel.hitX === null || feel.hitY === null || feel.hitZ === null
@@ -161,26 +126,28 @@ export function DebugHud() {
           value={currentAnimation}
           valueClassName="text-emerald-300"
         />
-        <DebugRow label={movementLabel} value={movementValue} />
-        <DebugRow label="Grounded" value={groundedValue} />
+        <DebugRow label={hud.movementLabel} value={hud.formatMovement(debug.movementState)} />
+        <DebugRow label="Grounded" value={hud.formatGrounded(debug.grounded)} />
         <DebugRow label="Speed" value={debug.speed.toFixed(2)} />
         <DebugRow
-          label={bodySlam ? "Phase" : "Attack"}
-          value={phaseLabel}
+          label={attackRows.phaseTitle}
+          value={attackRows.phaseLabel}
           valueClassName="text-amber-200"
         />
-        <DebugRow label={bodySlam ? "Attack" : "Attack name"} value={attackId ?? "none"} />
+        <DebugRow label={attackRows.attackTitle} value={attackId ?? "none"} />
         <DebugRow
-          label={bodySlam ? "Hitbox" : "Hitboxes"}
-          value={hitboxLabel}
+          label={attackRows.hitboxTitle}
+          value={attackRows.hitboxLabel}
           valueClassName={
-            hitboxLabel === "LIVE" || hitboxLabel === "active" || hitboxLabel === "ACTIVE"
+            attackRows.hitboxLabel === "LIVE" ||
+            attackRows.hitboxLabel === "active" ||
+            attackRows.hitboxLabel === "ACTIVE"
               ? "text-red-300"
               : "text-zinc-100"
           }
         />
         <DebugRow label="Active frames" value={String(lastActiveFrames)} />
-        {isCannonbolt ? <DebugRow label="Targets hit" value={String(targetsHit)} /> : null}
+        {hud.showTargetsHit ? <DebugRow label="Targets hit" value={String(targetsHit)} /> : null}
         <DebugRow label="Dummy HP" value={dummy ? `${dummy.hp}` : "—"} />
         <DebugRow label="Dummy stun" value={dummy?.hitstun ? "yes" : "no"} />
         <DebugRow label="Last hit" value={lastDamage ? String(lastDamage.amount) : "—"} />
@@ -212,17 +179,8 @@ export function DebugHud() {
           <span className="text-zinc-200">Space</span> jump
         </li>
         <li>
-          {isCannonbolt ? (
-            <>
-              <span className="text-zinc-200">J</span> fast roll{" "}
-              <span className="text-zinc-200">K</span> body slam
-            </>
-          ) : (
-            <>
-              <span className="text-zinc-200">J</span> punch{" "}
-              <span className="text-zinc-200">K</span> heavy
-            </>
-          )}
+          <span className="text-zinc-200">J</span> {controls.light}{" "}
+          <span className="text-zinc-200">K</span> {controls.heavy}
         </li>
         <li>
           <span className="text-zinc-200">H</span> hitboxes

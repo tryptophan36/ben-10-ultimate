@@ -11,6 +11,41 @@ export const ATTACK_PHASE = {
 
 export type AttackPhase = (typeof ATTACK_PHASE)[keyof typeof ATTACK_PHASE];
 
+export type MoveSlot = "light" | "heavy";
+
+export type MoveStartContext = {
+  grounded: boolean;
+  form: string;
+  jumpPressed: boolean;
+};
+
+/**
+ * What the shared physics step does with the body during this move.
+ * rooted keeps the current velocities. dash is Fast Roll. launch is Body Slam.
+ * A new kind of motion is one driver here, then every alien can reuse it.
+ */
+export type MoveMotion =
+  | { kind: "rooted" }
+  | {
+      kind: "dash";
+      acceleration: number;
+      /** Speed cap once the active window opens. Startup only changes acceleration. */
+      activeSpeed: number;
+      /** With no stick input, dash along the facing yaw. */
+      steer: boolean;
+    }
+  | {
+      kind: "launch";
+      lockPlanar: boolean;
+      lockJump: boolean;
+    };
+
+/** Visible clip and locomotion form while the move is in progress. */
+export type MovePresentation = {
+  clip?: string;
+  form?: string | ((phase: AttackPhase) => string);
+};
+
 export type Knockback = {
   /** Speed away from the attacker along their facing, in meters per second. */
   horizontal: number;
@@ -52,6 +87,10 @@ export type AttackDefinition = {
   id: string;
   characterId: string;
   kind: "melee";
+  /** Which button starts this move. Several light moves alternate. */
+  slot: MoveSlot;
+  /** Debug HUD label for that button. The first move in the slot is shown. */
+  slotLabel: string;
   animation: string;
   damage: number;
   startup: number;
@@ -82,6 +121,24 @@ export type AttackDefinition = {
   knockbackStyle?: "facing" | "radial";
   /** Present only when the clip is a pose layered on the physics phase. */
   pose?: AttackPose;
+  /** Omitted moves are rooted and do not change velocity. */
+  motion?: MoveMotion;
+  /** Omitted means the move can start from any pose. */
+  canStart?: (ctx: MoveStartContext) => boolean;
+  /**
+   * Step the combat clock on the same physics frame the move starts.
+   * Launch and dash moves need this so the shove happens before integration.
+   * Punches omit it and arm on the following frame.
+   */
+  stepOnStart?: boolean;
+  /** Locomotion form applied before integration on the start frame. */
+  enterForm?: string;
+  /** Rising off the ground ends the move. Fast Roll uses this. */
+  cancelOnRise?: boolean;
+  /** Mixer finished events are ignored while this move is the active one. */
+  ignoreClipFinish?: boolean;
+  /** When set, this move chooses the visible clip and form until it ends. */
+  presentation?: MovePresentation;
 };
 
 export type DamageRequest = {

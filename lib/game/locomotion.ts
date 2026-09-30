@@ -2,10 +2,7 @@ import { GRAVITY } from "@/lib/game/physics";
 
 export type MovementState = "idle" | "walk" | "run" | "jump";
 
-export type MovementStyle = "biped" | "cannonbolt";
-
 export type LocomotionConfig = {
-  movement: MovementStyle;
   capsuleRadius: number;
   capsuleHalfHeight: number;
   colliderOffset: number;
@@ -31,54 +28,18 @@ export type LocomotionConfig = {
     walk: string;
     run: string;
     jump: string;
-    punchLeft: string;
-    punchRight: string;
-    heavyPunch: string;
   };
 };
 
-export type PunchSide = "left" | "right";
-
-export function punchAnimation(config: LocomotionConfig, side: PunchSide): string {
-  return side === "left" ? config.animations.punchLeft : config.animations.punchRight;
-}
-
-export function nextPunchSide(side: PunchSide): PunchSide {
-  return side === "left" ? "right" : "left";
-}
-
-export const fourArmsLocomotion: LocomotionConfig = {
-  movement: "biped",
-  capsuleRadius: 0.42,
-  capsuleHalfHeight: 0.68,
-  colliderOffset: 0.03,
-  snapToGround: 0.32,
-  autostepMaxHeight: 0.3,
-  autostepMinWidth: 0.18,
-  walkSpeed: 2.6,
-  runSpeed: 5.6,
-  acceleration: 22,
-  deceleration: 28,
+export const sharedLocomotion = {
   jumpVelocity: 8.6,
   gravity: GRAVITY,
   maxFallSpeed: -28,
   groundProbeSpeed: 2,
-  turnSpeed: 8,
-  modelYawOffset: 0,
   moveSpeedThreshold: 0.22,
   coyoteTime: 0.08,
   attackLockSeconds: 2.6,
-  mass: 90,
-  animations: {
-    idle: "FA_Idle",
-    walk: "FA_Walk",
-    run: "FA_Run",
-    jump: "FA_Jump",
-    punchLeft: "fa_punch_left",
-    punchRight: "fa_punch_right",
-    heavyPunch: "FA_HeavyPunch",
-  },
-};
+} as const;
 
 export function capsuleHalfExtent(config: LocomotionConfig): number {
   return config.capsuleHalfHeight + config.capsuleRadius;
@@ -127,15 +88,6 @@ export function animationForMovement(
     default:
       return config.animations.idle;
   }
-}
-
-export function isAttackAnimation(config: LocomotionConfig, name: string): boolean {
-  const folded = name.toLowerCase();
-  return (
-    folded === config.animations.punchLeft.toLowerCase() ||
-    folded === config.animations.punchRight.toLowerCase() ||
-    folded === config.animations.heavyPunch.toLowerCase()
-  );
 }
 
 export function yawForDirection(

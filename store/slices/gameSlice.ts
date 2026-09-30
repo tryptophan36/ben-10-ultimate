@@ -1,9 +1,8 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import {
-  DEFAULT_ANIMATION,
-  resolveAnimationName,
-} from "@/lib/game/animations";
+import { resolveAnimationName } from "@/lib/game/animations";
 import { characters, type CharacterId } from "@/lib/game/characters";
+
+const initialCharacter: CharacterId = "four-arms";
 
 export type GameStatus = "idle" | "loading" | "playing";
 
@@ -16,8 +15,8 @@ type GameState = {
 };
 
 const initialState: GameState = {
-  currentAnimation: DEFAULT_ANIMATION,
-  selectedCharacter: "four-arms",
+  currentAnimation: characters[initialCharacter].defaultAnimation,
+  selectedCharacter: initialCharacter,
   gameStatus: "idle",
   availableAnimations: [],
   animationEpoch: 0,

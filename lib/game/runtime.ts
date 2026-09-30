@@ -1,6 +1,4 @@
 import { Vector3 } from "three";
-import type { CannonboltState } from "@/lib/game/cannonbolt";
-import type { MovementState } from "@/lib/game/locomotion";
 
 export const playerFocus = {
   feet: new Vector3(),
@@ -9,7 +7,7 @@ export const playerFocus = {
 };
 
 export type ControllerDebug = {
-  movementState: MovementState | CannonboltState;
+  movementState: string;
   grounded: boolean;
   speed: number;
 };

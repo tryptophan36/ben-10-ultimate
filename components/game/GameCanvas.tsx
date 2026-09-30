@@ -13,9 +13,8 @@ import {
   TrainingDummy,
   trainingDummyHeight,
 } from "@/components/game/combat/TrainingDummy";
-import { Cannonbolt } from "@/components/game/characters/Cannonbolt";
 import { DebugHud } from "@/components/game/DebugHud";
-import { Player } from "@/components/game/Player";
+import { Fighter } from "@/components/game/Fighter";
 import { resetCameraShake } from "@/lib/game/camera/cameraShake";
 import { resetFeelDebug } from "@/lib/game/combat/feelDebug";
 import { resetHitstop } from "@/lib/game/combat/hitstop";
@@ -129,11 +128,7 @@ export function GameCanvas() {
           >
             <HitstopSim />
             <Ground />
-            {selectedCharacter === "cannonbolt" ? (
-              <Cannonbolt key="cannonbolt" />
-            ) : (
-              <Player key={selectedCharacter} />
-            )}
+            <Fighter key={selectedCharacter} characterId={selectedCharacter} />
             <TrainingDummy />
             <TrainingDummy
               id={TRAINING_DUMMY_B_ID}

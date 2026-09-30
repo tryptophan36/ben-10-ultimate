@@ -6,7 +6,7 @@ export const TRAINING_DUMMY_B_ID = "training-dummy-b";
 export const TRAINING_DUMMY_C_ID = "training-dummy-c";
 
 function freshTarget(): TargetCombatState {
-  return { hp: 100, maxHp: 100, hitstun: false };
+  return { hp: 1000, maxHp: 1000, hitstun: false };
 }
 
 export type TargetCombatState = {
