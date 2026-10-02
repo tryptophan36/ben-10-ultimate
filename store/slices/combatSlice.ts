@@ -1,4 +1,9 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
+import {
+  freshFighterHealth,
+  OPPONENT_FIGHTER_ID,
+  PLAYER_FIGHTER_ID,
+} from "@/lib/game/combat/fighters";
 import { ATTACK_PHASE, type AttackPhase } from "@/lib/game/combat/types";
 
 export const TRAINING_DUMMY_ID = "training-dummy";
@@ -37,6 +42,8 @@ const initialState: CombatState = {
   lastActiveFrames: 0,
   lastDamage: null,
   targets: {
+    [PLAYER_FIGHTER_ID]: freshFighterHealth(),
+    [OPPONENT_FIGHTER_ID]: freshFighterHealth(),
     [TRAINING_DUMMY_ID]: freshTarget(),
     [TRAINING_DUMMY_B_ID]: freshTarget(),
     [TRAINING_DUMMY_C_ID]: freshTarget(),
@@ -103,6 +110,8 @@ const combatSlice = createSlice({
         lastActiveFrames: 0,
         lastDamage: null,
         targets: {
+          [PLAYER_FIGHTER_ID]: freshFighterHealth(),
+          [OPPONENT_FIGHTER_ID]: freshFighterHealth(),
           [TRAINING_DUMMY_ID]: freshTarget(),
           [TRAINING_DUMMY_B_ID]: freshTarget(),
           [TRAINING_DUMMY_C_ID]: freshTarget(),

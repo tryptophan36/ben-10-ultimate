@@ -13,15 +13,15 @@ const SERVER_SNAPSHOT: HitstopSnapshot = { active: false };
 
 let remaining = 0;
 let snapshot: HitstopSnapshot = SERVER_SNAPSHOT;
-let mixer: AnimationMixer | null = null;
+const mixers = new Set<AnimationMixer>();
 const holds: HitstopHold[] = [];
 const listeners = new Set<() => void>();
 
 function applyMixerScale(): void {
-  if (!mixer) {
-    return;
+  const scale = remaining > 0 ? 0 : 1;
+  for (const mixer of mixers) {
+    mixer.timeScale = scale;
   }
-  mixer.timeScale = remaining > 0 ? 0 : 1;
 }
 
 function publish(): void {
@@ -117,12 +117,14 @@ export function pinHitstopHolds(): void {
   }
 }
 
-export function bindHitstopMixer(next: AnimationMixer | null): void {
-  if (mixer && mixer !== next) {
+/** Freeze this mixer with every other fighter while hitstop is active. */
+export function attachHitstopMixer(mixer: AnimationMixer): () => void {
+  mixers.add(mixer);
+  mixer.timeScale = remaining > 0 ? 0 : 1;
+  return () => {
+    mixers.delete(mixer);
     mixer.timeScale = 1;
-  }
-  mixer = next;
-  applyMixerScale();
+  };
 }
 
 export function resetHitstop(): void {

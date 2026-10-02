@@ -7,18 +7,13 @@ import {
   type AttackPhase,
   type Damageable,
 } from "@/lib/game/combat/types";
+import { PLAYER_FIGHTER_ID } from "@/lib/game/combat/fighters";
 import { PHYSICS_TIMESTEP } from "@/lib/game/physics";
-import { playerFocus } from "@/lib/game/runtime";
 
-export const clipClock = {
-  name: "",
-  time: 0,
+type ClipClock = {
+  name: string;
+  time: number;
 };
-
-export function publishClipClock(name: string, time: number): void {
-  clipClock.name = name;
-  clipClock.time = time;
-}
 
 type AttackRuntime = {
   live: boolean;
@@ -32,25 +27,71 @@ type AttackRuntime = {
   elapsedFrame: number;
   /** Body Slam has left the ground and can accept a landing. */
   leftGround: boolean;
+  feetX: number;
+  feetZ: number;
+  yaw: number;
+  hitTargets: Set<string>;
 };
 
-export const attackRuntime: AttackRuntime = {
-  live: false,
-  attackerId: "",
-  attackId: null,
-  serial: 0,
-  phase: ATTACK_PHASE.idle,
-  activeFrames: 0,
-  seenClipStart: false,
-  elapsedFrame: 0,
-  leftGround: false,
-};
-
-const hurtboxes = new Map<number, Damageable>();
-const hitTargets = new Set<string>();
+const attacks = new Map<string, AttackRuntime>();
+const clipClocks = new Map<string, ClipClock>();
 
 let targetsHit = 0;
 const hitListeners = new Set<() => void>();
+
+function createAttackRuntime(): AttackRuntime {
+  return {
+    live: false,
+    attackerId: "",
+    attackId: null,
+    serial: 0,
+    phase: ATTACK_PHASE.idle,
+    activeFrames: 0,
+    seenClipStart: false,
+    elapsedFrame: 0,
+    leftGround: false,
+    feetX: 0,
+    feetZ: 0,
+    yaw: 0,
+    hitTargets: new Set(),
+  };
+}
+
+export function getAttackRuntime(fighterId: string): AttackRuntime {
+  let state = attacks.get(fighterId);
+  if (!state) {
+    state = createAttackRuntime();
+    attacks.set(fighterId, state);
+  }
+  return state;
+}
+
+function clipState(fighterId: string): ClipClock {
+  let clock = clipClocks.get(fighterId);
+  if (!clock) {
+    clock = { name: "", time: 0 };
+    clipClocks.set(fighterId, clock);
+  }
+  return clock;
+}
+
+export function publishClipClock(fighterId: string, name: string, time: number): void {
+  const clock = clipState(fighterId);
+  clock.name = name;
+  clock.time = time;
+}
+
+export function publishAttackerPose(
+  fighterId: string,
+  x: number,
+  z: number,
+  yaw: number,
+): void {
+  const state = getAttackRuntime(fighterId);
+  state.feetX = x;
+  state.feetZ = z;
+  state.yaw = yaw;
+}
 
 function setTargetsHit(count: number): void {
   if (targetsHit === count) {
@@ -77,6 +118,8 @@ export function getAttackHitsServerSnapshot(): number {
   return 0;
 }
 
+const hurtboxes = new Map<number, Damageable>();
+
 export function registerHurtbox(bodyHandle: number, target: Damageable): () => void {
   hurtboxes.set(bodyHandle, target);
   return () => {
@@ -86,11 +129,12 @@ export function registerHurtbox(bodyHandle: number, target: Damageable): () => v
   };
 }
 
-export function isHitboxLive(attackIds: readonly string[]): boolean {
+export function isHitboxLive(fighterId: string, attackIds: readonly string[]): boolean {
+  const state = getAttackRuntime(fighterId);
   return (
-    attackRuntime.phase === ATTACK_PHASE.active &&
-    attackRuntime.attackId !== null &&
-    attackIds.includes(attackRuntime.attackId)
+    state.phase === ATTACK_PHASE.active &&
+    state.attackId !== null &&
+    attackIds.includes(state.attackId)
   );
 }
 
@@ -110,33 +154,43 @@ const IDLE_CLOCK: AttackClock = {
   activeFrames: null,
 };
 
-function beginAttack(attack: AttackDefinition, attackerId: string): void {
-  attackRuntime.live = true;
-  attackRuntime.attackerId = attackerId;
-  attackRuntime.attackId = attack.id;
-  attackRuntime.serial += 1;
-  attackRuntime.phase = ATTACK_PHASE.startup;
-  attackRuntime.activeFrames = 0;
-  attackRuntime.seenClipStart = false;
-  attackRuntime.elapsedFrame = 0;
-  attackRuntime.leftGround = false;
-  hitTargets.clear();
-  setTargetsHit(0);
+function beginAttack(state: AttackRuntime, attack: AttackDefinition, attackerId: string): void {
+  state.live = true;
+  state.attackerId = attackerId;
+  state.attackId = attack.id;
+  state.serial += 1;
+  state.phase = ATTACK_PHASE.startup;
+  state.activeFrames = 0;
+  state.seenClipStart = false;
+  state.elapsedFrame = 0;
+  state.leftGround = false;
+  state.hitTargets.clear();
+  if (attackerId === PLAYER_FIGHTER_ID) {
+    setTargetsHit(0);
+  }
 }
 
-export function endAttackInstance(): void {
-  attackRuntime.live = false;
-  attackRuntime.attackId = null;
-  attackRuntime.phase = ATTACK_PHASE.idle;
-  attackRuntime.activeFrames = 0;
-  attackRuntime.seenClipStart = false;
-  attackRuntime.elapsedFrame = 0;
-  attackRuntime.leftGround = false;
-  hitTargets.clear();
+export function endAttackInstance(fighterId: string): void {
+  const state = getAttackRuntime(fighterId);
+  state.live = false;
+  state.attackId = null;
+  state.phase = ATTACK_PHASE.idle;
+  state.activeFrames = 0;
+  state.seenClipStart = false;
+  state.elapsedFrame = 0;
+  state.leftGround = false;
+  state.hitTargets.clear();
 }
 
-function finishLanding(activeFrames: number | null): AttackClock {
-  endAttackInstance();
+function finishLanding(state: AttackRuntime, activeFrames: number | null): AttackClock {
+  state.live = false;
+  state.attackId = null;
+  state.phase = ATTACK_PHASE.idle;
+  state.activeFrames = 0;
+  state.seenClipStart = false;
+  state.elapsedFrame = 0;
+  state.leftGround = false;
+  state.hitTargets.clear();
   return {
     attackId: null,
     phase: ATTACK_PHASE.idle,
@@ -150,104 +204,110 @@ function finishLanding(activeFrames: number | null): AttackClock {
  * supported again. The active window opens on that landing and then closes.
  */
 function stepLandingAttack(
+  state: AttackRuntime,
   attack: AttackDefinition,
   attackerId: string,
   grounded: boolean,
 ): AttackClock {
-  if (!attackRuntime.live || attackRuntime.attackId !== attack.id) {
-    beginAttack(attack, attackerId);
+  if (!state.live || state.attackId !== attack.id) {
+    beginAttack(state, attack, attackerId);
   }
 
-  if (attackRuntime.phase === ATTACK_PHASE.startup) {
-    const frame = attackRuntime.elapsedFrame;
-    attackRuntime.elapsedFrame += 1;
+  if (state.phase === ATTACK_PHASE.startup) {
+    const frame = state.elapsedFrame;
+    state.elapsedFrame += 1;
     if (frame < attack.startup) {
       return {
         attackId: attack.id,
         phase: ATTACK_PHASE.startup,
         ended: false,
-        activeFrames: commitPhase(ATTACK_PHASE.startup),
+        activeFrames: commitPhase(state, ATTACK_PHASE.startup),
       };
     }
-    attackRuntime.elapsedFrame = 0;
+    state.elapsedFrame = 0;
     return {
       attackId: attack.id,
       phase: ATTACK_PHASE.airborne,
       ended: false,
-      activeFrames: commitPhase(ATTACK_PHASE.airborne),
+      activeFrames: commitPhase(state, ATTACK_PHASE.airborne),
       launch: true,
     };
   }
 
-  if (attackRuntime.phase === ATTACK_PHASE.airborne) {
+  if (state.phase === ATTACK_PHASE.airborne) {
     if (!grounded) {
-      attackRuntime.leftGround = true;
+      state.leftGround = true;
     }
-    if (grounded && attackRuntime.leftGround) {
-      attackRuntime.elapsedFrame = 1;
+    if (grounded && state.leftGround) {
+      state.elapsedFrame = 1;
       return {
         attackId: attack.id,
         phase: ATTACK_PHASE.active,
         ended: false,
-        activeFrames: commitPhase(ATTACK_PHASE.active),
+        activeFrames: commitPhase(state, ATTACK_PHASE.active),
       };
     }
     // Counts how long the dive pose has played. Landing ignores this.
-    attackRuntime.elapsedFrame += 1;
+    state.elapsedFrame += 1;
     return {
       attackId: attack.id,
       phase: ATTACK_PHASE.airborne,
       ended: false,
-      activeFrames: commitPhase(ATTACK_PHASE.airborne),
+      activeFrames: commitPhase(state, ATTACK_PHASE.airborne),
     };
   }
 
-  if (attackRuntime.phase === ATTACK_PHASE.active) {
-    if (attackRuntime.elapsedFrame >= attack.active) {
-      attackRuntime.elapsedFrame = 1;
+  if (state.phase === ATTACK_PHASE.active) {
+    if (state.elapsedFrame >= attack.active) {
+      state.elapsedFrame = 1;
       return {
         attackId: attack.id,
         phase: ATTACK_PHASE.recovery,
         ended: false,
-        activeFrames: commitPhase(ATTACK_PHASE.recovery),
+        activeFrames: commitPhase(state, ATTACK_PHASE.recovery),
       };
     }
-    attackRuntime.elapsedFrame += 1;
+    state.elapsedFrame += 1;
     return {
       attackId: attack.id,
       phase: ATTACK_PHASE.active,
       ended: false,
-      activeFrames: commitPhase(ATTACK_PHASE.active),
+      activeFrames: commitPhase(state, ATTACK_PHASE.active),
     };
   }
 
-  if (attackRuntime.phase === ATTACK_PHASE.recovery) {
-    if (attackRuntime.elapsedFrame >= attack.recovery) {
-      return finishLanding(null);
+  if (state.phase === ATTACK_PHASE.recovery) {
+    if (state.elapsedFrame >= attack.recovery) {
+      return finishLanding(state, null);
     }
-    attackRuntime.elapsedFrame += 1;
+    state.elapsedFrame += 1;
     return {
       attackId: attack.id,
       phase: ATTACK_PHASE.recovery,
       ended: false,
-      activeFrames: commitPhase(ATTACK_PHASE.recovery),
+      activeFrames: commitPhase(state, ATTACK_PHASE.recovery),
     };
   }
 
-  return finishLanding(null);
+  return finishLanding(state, null);
 }
 
-function stepElapsedAttack(attack: AttackDefinition, attackerId: string): AttackClock {
-  if (!attackRuntime.live || attackRuntime.attackId !== attack.id) {
-    beginAttack(attack, attackerId);
+function stepElapsedAttack(
+  state: AttackRuntime,
+  attack: AttackDefinition,
+  fighterId: string,
+  attackerId: string,
+): AttackClock {
+  if (!state.live || state.attackId !== attack.id) {
+    beginAttack(state, attack, attackerId);
   }
 
-  const frame = attackRuntime.elapsedFrame;
-  attackRuntime.elapsedFrame += 1;
+  const frame = state.elapsedFrame;
+  state.elapsedFrame += 1;
   const phase = phaseForFrame(attack, frame);
-  const activeFrames = commitPhase(phase);
+  const activeFrames = commitPhase(state, phase);
   if (phase === ATTACK_PHASE.idle) {
-    endAttackInstance();
+    endAttackInstance(fighterId);
     return {
       attackId: null,
       phase: ATTACK_PHASE.idle,
@@ -264,18 +324,18 @@ function stepElapsedAttack(attack: AttackDefinition, attackerId: string): Attack
   };
 }
 
-function commitPhase(next: AttackPhase): number | null {
-  const leavingActive =
-    attackRuntime.phase === ATTACK_PHASE.active && next !== ATTACK_PHASE.active;
-  const finishedActiveFrames = leavingActive ? attackRuntime.activeFrames : null;
+function commitPhase(state: AttackRuntime, next: AttackPhase): number | null {
+  const leavingActive = state.phase === ATTACK_PHASE.active && next !== ATTACK_PHASE.active;
+  const finishedActiveFrames = leavingActive ? state.activeFrames : null;
   if (next === ATTACK_PHASE.active) {
-    attackRuntime.activeFrames += 1;
+    state.activeFrames += 1;
   }
-  attackRuntime.phase = next;
+  state.phase = next;
   return finishedActiveFrames;
 }
 
 export function stepAttackClock(input: {
+  fighterId: string;
   animationName: string | null;
   attackerId: string;
   now: number;
@@ -284,22 +344,24 @@ export function stepAttackClock(input: {
   /** Previous Rapier ground result. Used by landing-clock attacks. */
   grounded?: boolean;
 }): AttackClock {
+  const state = getAttackRuntime(input.fighterId);
+  const clipClock = clipState(input.fighterId);
+
   if (isHitstopActive()) {
     return {
-      attackId: attackRuntime.attackId,
-      phase: attackRuntime.phase,
+      attackId: state.attackId,
+      phase: state.phase,
       ended: false,
       activeFrames: null,
     };
   }
 
   if (!input.animationName) {
-    if (!attackRuntime.live) {
+    if (!state.live) {
       return IDLE_CLOCK;
     }
-    const activeFrames =
-      attackRuntime.phase === ATTACK_PHASE.active ? attackRuntime.activeFrames : null;
-    endAttackInstance();
+    const activeFrames = state.phase === ATTACK_PHASE.active ? state.activeFrames : null;
+    endAttackInstance(input.fighterId);
     return {
       attackId: null,
       phase: ATTACK_PHASE.idle,
@@ -319,7 +381,7 @@ export function stepAttackClock(input: {
         activeFrames: null,
       };
     }
-    endAttackInstance();
+    endAttackInstance(input.fighterId);
     return {
       attackId: null,
       phase: ATTACK_PHASE.idle,
@@ -329,9 +391,8 @@ export function stepAttackClock(input: {
   }
 
   if (timedOut) {
-    const activeFrames =
-      attackRuntime.phase === ATTACK_PHASE.active ? attackRuntime.activeFrames : null;
-    endAttackInstance();
+    const activeFrames = state.phase === ATTACK_PHASE.active ? state.activeFrames : null;
+    endAttackInstance(input.fighterId);
     return {
       attackId: null,
       phase: ATTACK_PHASE.idle,
@@ -341,32 +402,32 @@ export function stepAttackClock(input: {
   }
 
   if (attack.clock === "elapsed") {
-    return stepElapsedAttack(attack, input.attackerId);
+    return stepElapsedAttack(state, attack, input.fighterId, input.attackerId);
   }
 
   if (attack.clock === "landing") {
-    return stepLandingAttack(attack, input.attackerId, input.grounded === true);
+    return stepLandingAttack(state, attack, input.attackerId, input.grounded === true);
   }
 
-  if (!attackRuntime.live || attackRuntime.attackId !== attack.id) {
-    beginAttack(attack, input.attackerId);
+  if (!state.live || state.attackId !== attack.id) {
+    beginAttack(state, attack, input.attackerId);
   }
 
   const clockMatches = sameAnimationName(clipClock.name, attack.animation);
   if (
-    !attackRuntime.seenClipStart &&
+    !state.seenClipStart &&
     clockMatches &&
     clipClock.time < attack.startup * PHYSICS_TIMESTEP + 0.15
   ) {
-    attackRuntime.seenClipStart = true;
+    state.seenClipStart = true;
   }
 
-  if (!attackRuntime.seenClipStart) {
+  if (!state.seenClipStart) {
     return {
       attackId: attack.id,
       phase: ATTACK_PHASE.startup,
       ended: false,
-      activeFrames: commitPhase(ATTACK_PHASE.startup),
+      activeFrames: commitPhase(state, ATTACK_PHASE.startup),
     };
   }
 
@@ -377,9 +438,9 @@ export function stepAttackClock(input: {
     phase = ATTACK_PHASE.idle;
   }
 
-  const activeFrames = commitPhase(phase);
+  const activeFrames = commitPhase(state, phase);
   if (phase === ATTACK_PHASE.idle) {
-    endAttackInstance();
+    endAttackInstance(input.fighterId);
     return {
       attackId: null,
       phase: ATTACK_PHASE.idle,
@@ -397,37 +458,39 @@ export function stepAttackClock(input: {
 }
 
 export function tryHit(
+  fighterId: string,
   bodyHandle: number,
   hit: { x: number; y: number; z: number },
 ): boolean {
-  if (attackRuntime.phase !== ATTACK_PHASE.active || attackRuntime.attackId === null) {
+  const state = getAttackRuntime(fighterId);
+  if (state.phase !== ATTACK_PHASE.active || state.attackId === null) {
     return false;
   }
 
-  const attack = attackById(attackRuntime.attackId);
+  const attack = attackById(state.attackId);
   const target = hurtboxes.get(bodyHandle);
-  if (!attack || !target) {
+  if (!attack || !target || target.id === state.attackerId) {
     return false;
   }
 
-  const key = `${attackRuntime.serial}:${target.id}`;
+  const key = `${state.serial}:${target.id}`;
   if (!attack.multiHit) {
-    if (hitTargets.has(key)) {
+    if (state.hitTargets.has(key)) {
       return false;
     }
-    hitTargets.add(key);
+    state.hitTargets.add(key);
   }
 
   const connected = target.takeDamage({
     amount: attack.damage,
     knockback: attack.knockback,
     hitstun: attack.hitstun,
-    attacker: attackRuntime.attackerId,
+    attacker: state.attackerId,
     attackId: attack.id,
-    attackSerial: attackRuntime.serial,
-    facingYaw: playerFocus.yaw,
-    attackerX: playerFocus.feet.x,
-    attackerZ: playerFocus.feet.z,
+    attackSerial: state.serial,
+    facingYaw: state.yaw,
+    attackerX: state.feetX,
+    attackerZ: state.feetZ,
     hitX: hit.x,
     hitY: hit.y,
     hitZ: hit.z,
@@ -436,8 +499,15 @@ export function tryHit(
     impactScale: attack.impactScale,
     knockbackStyle: attack.knockbackStyle ?? "facing",
   });
-  if (connected) {
+  if (connected && fighterId === PLAYER_FIGHTER_ID) {
     setTargetsHit(targetsHit + 1);
   }
   return connected;
+}
+
+export function resetCombatRuntime(): void {
+  attacks.clear();
+  clipClocks.clear();
+  hurtboxes.clear();
+  setTargetsHit(0);
 }

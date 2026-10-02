@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useLayoutEffect, useMemo } from "react";
+import { Suspense, useEffect, useLayoutEffect } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Physics } from "@react-three/rapier";
 import { NeutralToneMapping } from "three";
@@ -9,28 +9,28 @@ import { HitLocationMarker } from "@/components/game/combat/HitLocationMarker";
 import { HitstopClock } from "@/components/game/combat/HitstopClock";
 import { HitstopSim } from "@/components/game/combat/HitstopSim";
 import { ImpactBursts } from "@/components/game/combat/ImpactBursts";
-import {
-  TrainingDummy,
-  trainingDummyHeight,
-} from "@/components/game/combat/TrainingDummy";
 import { DebugHud } from "@/components/game/DebugHud";
 import { DesertArena, useDesertArena } from "@/components/game/DesertArena";
 import { Fighter } from "@/components/game/Fighter";
-import { offsetFromSpawn } from "@/lib/game/arena/desert";
+import { MatchHud } from "@/components/game/MatchHud";
 import { resetCameraShake } from "@/lib/game/camera/cameraShake";
+import { characterIds, type CharacterId } from "@/lib/game/characters";
+import { OPPONENT_FIGHTER_ID, PLAYER_FIGHTER_ID } from "@/lib/game/combat/fighters";
 import { resetFeelDebug } from "@/lib/game/combat/feelDebug";
 import { resetHitstop } from "@/lib/game/combat/hitstop";
 import { clearImpacts } from "@/lib/game/combat/impactVfx";
+import { resetCombatRuntime } from "@/lib/game/combat/runtime";
+import { resetMatchFlags } from "@/lib/game/cpu";
 import { GRAVITY, PHYSICS_TIMESTEP } from "@/lib/game/physics";
 import { playerFocus } from "@/lib/game/runtime";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import {
-  resetCombat,
-  TRAINING_DUMMY_B_ID,
-  TRAINING_DUMMY_C_ID,
-} from "@/store/slices/combatSlice";
+import { resetCombat } from "@/store/slices/combatSlice";
 import { endSession, markSessionActive } from "@/store/slices/gameSlice";
-import type { CharacterId } from "@/lib/game/characters";
+
+function opponentCharacter(id: CharacterId): CharacterId {
+  const index = characterIds.indexOf(id);
+  return characterIds[(index + 1) % characterIds.length] ?? id;
+}
 
 function Lighting() {
   return (
@@ -62,15 +62,8 @@ const WORLD_GRAVITY: [number, number, number] = [0, GRAVITY, 0];
 function ArenaSession({ characterId }: { characterId: CharacterId }) {
   const arena = useDesertArena();
   const playerSpawn = arena.spawns.player1;
-  const dummyHeight = trainingDummyHeight();
-  const dummyPositions = useMemo(
-    () => ({
-      a: offsetFromSpawn(playerSpawn, 1.2, 1.5, dummyHeight),
-      b: offsetFromSpawn(playerSpawn, 1.2, 2.4, dummyHeight),
-      c: offsetFromSpawn(playerSpawn, 1.8, 1.6, dummyHeight),
-    }),
-    [dummyHeight, playerSpawn],
-  );
+  const opponentSpawn = arena.spawns.player2;
+  const opponentId = opponentCharacter(characterId);
   useLayoutEffect(() => {
     playerFocus.feet.set(
       playerSpawn.position[0],
@@ -88,17 +81,19 @@ function ArenaSession({ characterId }: { characterId: CharacterId }) {
         initialFocus={playerSpawn.position}
       />
       <DesertArena arena={arena} />
-      <Fighter key={characterId} characterId={characterId} spawn={playerSpawn} />
-      <TrainingDummy position={dummyPositions.a} />
-      <TrainingDummy
-        id={TRAINING_DUMMY_B_ID}
-        position={dummyPositions.b}
-        label="Dummy B"
+      <Fighter
+        key={characterId}
+        characterId={characterId}
+        fighterId={PLAYER_FIGHTER_ID}
+        control="player"
+        spawn={playerSpawn}
       />
-      <TrainingDummy
-        id={TRAINING_DUMMY_C_ID}
-        position={dummyPositions.c}
-        label="Dummy C"
+      <Fighter
+        key={`cpu-${opponentId}`}
+        characterId={opponentId}
+        fighterId={OPPONENT_FIGHTER_ID}
+        control="cpu"
+        spawn={opponentSpawn}
       />
     </Physics>
   );
@@ -113,6 +108,8 @@ export function GameCanvas() {
     resetCameraShake();
     clearImpacts();
     resetFeelDebug();
+    resetCombatRuntime();
+    resetMatchFlags();
     dispatch(markSessionActive());
     dispatch(resetCombat());
     return () => {
@@ -120,13 +117,21 @@ export function GameCanvas() {
       resetCameraShake();
       clearImpacts();
       resetFeelDebug();
+      resetCombatRuntime();
+      resetMatchFlags();
       dispatch(endSession());
       dispatch(resetCombat());
     };
   }, [dispatch]);
 
+  useEffect(() => {
+    resetMatchFlags();
+    dispatch(resetCombat());
+  }, [dispatch, selectedCharacter]);
+
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-[#8eb4d4]">
+      <MatchHud />
       <DebugHud />
       <Canvas
         className="h-full w-full"

@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
 import { useFrame } from "@react-three/fiber";
 import { LoopOnce, LoopRepeat, type AnimationAction, type AnimationMixer } from "three";
 import { isLoopingAnimation, isOneShotAnimation } from "@/lib/game/animations";
-import { characters } from "@/lib/game/characters";
+import { characters, type CharacterId } from "@/lib/game/characters";
 import { attackForAnimation, landingPoseTime } from "@/lib/game/combat/attacks";
-import { bindHitstopMixer } from "@/lib/game/combat/hitstop";
-import { attackRuntime, publishClipClock } from "@/lib/game/combat/runtime";
+import { attachHitstopMixer } from "@/lib/game/combat/hitstop";
+import { getAttackRuntime, publishClipClock } from "@/lib/game/combat/runtime";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { playAnimation, registerAnimations } from "@/store/slices/gameSlice";
 
@@ -55,6 +55,10 @@ export type AnimationLibrary = {
 
 type AnimationControllerInput = {
   libraries: readonly AnimationLibrary[];
+  characterId: CharacterId;
+  fighterId: string;
+  /** Computer fighters play clips from this ref instead of the shared HUD animation. */
+  clipCommandRef?: RefObject<{ name: string; epoch: number }>;
   onOneShotFinished?: (clipName: string) => string | null;
 };
 
@@ -73,17 +77,21 @@ function findAction(
 
 export function useAnimationController({
   libraries,
+  characterId,
+  fighterId,
+  clipCommandRef,
   onOneShotFinished,
 }: AnimationControllerInput) {
   const dispatch = useAppDispatch();
-  const selectedCharacter = useAppSelector((state) => state.game.selectedCharacter);
-  const clips = characters[selectedCharacter].clips;
-  const defaultAnimation = characters[selectedCharacter].defaultAnimation;
+  const clips = characters[characterId].clips;
+  const defaultAnimation = characters[characterId].defaultAnimation;
   const currentAnimation = useAppSelector((state) => state.game.currentAnimation);
   const animationEpoch = useAppSelector((state) => state.game.animationEpoch);
   const librariesRef = useRef(libraries);
   const activeActionRef = useRef<AnimationAction | null>(null);
+  const appliedEpochRef = useRef(-1);
   const onOneShotFinishedRef = useRef(onOneShotFinished);
+  const local = clipCommandRef !== undefined;
 
   useEffect(() => {
     librariesRef.current = libraries;
@@ -93,24 +101,46 @@ export function useAnimationController({
     onOneShotFinishedRef.current = onOneShotFinished;
   }, [onOneShotFinished]);
 
-  const primaryMixer = libraries[0]?.mixer;
   useEffect(() => {
-    if (!primaryMixer) {
-      return;
-    }
-    bindHitstopMixer(primaryMixer);
+    const detach = libraries.map((library) => attachHitstopMixer(library.mixer));
     return () => {
-      bindHitstopMixer(null);
+      for (const undo of detach) {
+        undo();
+      }
     };
-  }, [primaryMixer]);
+  }, [libraries]);
+
+  const playLocal = useCallback(
+    (name: string, epoch: number) => {
+      if (epoch === appliedEpochRef.current) {
+        return;
+      }
+      const action = findAction(librariesRef.current, name);
+      if (!action) {
+        return;
+      }
+      appliedEpochRef.current = epoch;
+      const previous = activeActionRef.current;
+      const snap = Boolean(attackForAnimation(name)?.pose);
+      startClip(action, previous, isLoopingAnimation(clips, name), snap);
+      activeActionRef.current = action;
+    },
+    [clips],
+  );
 
   useFrame(() => {
+    const command = clipCommandRef?.current;
+    if (command) {
+      playLocal(command.name, command.epoch);
+    }
+
     const action = activeActionRef.current;
     if (!action) {
       return;
     }
     const clip = action.getClip();
     const attack = attackForAnimation(clip.name);
+    const attackRuntime = getAttackRuntime(fighterId);
     if (!attack?.pose || !attackRuntime.live || attackRuntime.attackId !== attack.id) {
       return;
     }
@@ -130,18 +160,18 @@ export function useAnimationController({
   useFrame(() => {
     const action = activeActionRef.current;
     if (!action) {
-      publishClipClock("", 0);
+      publishClipClock(fighterId, "", 0);
       return;
     }
     const clip = action.getClip();
-    publishClipClock(clip.name, action.time);
+    publishClipClock(fighterId, clip.name, action.time);
   });
 
   useEffect(() => {
     return () => {
-      publishClipClock("", 0);
+      publishClipClock(fighterId, "", 0);
     };
-  }, []);
+  }, [fighterId]);
 
   const registeredNames = useMemo(() => {
     const combined: string[] = [];
@@ -156,10 +186,16 @@ export function useAnimationController({
   }, [libraries]);
 
   useEffect(() => {
+    if (local) {
+      return;
+    }
     dispatch(registerAnimations(registeredNames));
-  }, [dispatch, registeredNames]);
+  }, [dispatch, local, registeredNames]);
 
   useEffect(() => {
+    if (local) {
+      return;
+    }
     const action = findAction(librariesRef.current, currentAnimation);
     if (!action) {
       return;
@@ -169,8 +205,7 @@ export function useAnimationController({
     const snap = Boolean(attackForAnimation(currentAnimation)?.pose);
     startClip(action, previous, isLoopingAnimation(clips, currentAnimation), snap);
     activeActionRef.current = action;
-    bindHitstopMixer(action.getMixer());
-  }, [animationEpoch, clips, currentAnimation, libraries]);
+  }, [animationEpoch, clips, currentAnimation, libraries, local]);
 
   const onFinished = useCallback(
     (event: { action: AnimationAction }) => {
@@ -183,17 +218,28 @@ export function useAnimationController({
       }
 
       const resolveNext = onOneShotFinishedRef.current;
+      const play = (name: string) => {
+        if (clipCommandRef?.current) {
+          clipCommandRef.current = {
+            name,
+            epoch: clipCommandRef.current.epoch + 1,
+          };
+          return;
+        }
+        dispatch(playAnimation(name));
+      };
+
       if (!resolveNext) {
-        dispatch(playAnimation(defaultAnimation));
+        play(defaultAnimation);
         return;
       }
 
       const next = resolveNext(clipName);
       if (next) {
-        dispatch(playAnimation(next));
+        play(next);
       }
     },
-    [clips, defaultAnimation, dispatch],
+    [clipCommandRef, clips, defaultAnimation, dispatch],
   );
 
   useEffect(() => {

@@ -16,7 +16,7 @@ import { Bone, Group, Mesh, Vector3, type Object3D } from "three";
 import { meleeHitboxes } from "@/lib/game/combat/attacks";
 import { isHitstopActive } from "@/lib/game/combat/hitstop";
 import { isHitboxLive, tryHit } from "@/lib/game/combat/runtime";
-import { physicsGroups } from "@/lib/game/physics";
+import { HIT_COLLISION_TYPES, physicsGroups } from "@/lib/game/physics";
 import { useAppSelector } from "@/store/hooks";
 
 const HITBOX_GROUPS = interactionGroups(
@@ -28,6 +28,7 @@ const scratch = new Vector3();
 
 type AttackHitboxesProps = {
   characterId: string;
+  fighterId: string;
   model: Object3D;
   visualRef: RefObject<Group | null>;
 };
@@ -83,12 +84,14 @@ function bonePosition(
 }
 
 function BoneHitbox({
+  fighterId,
   bone,
   radius,
   offset,
   attackIds,
   visualRef,
 }: {
+  fighterId: string;
   bone: Object3D;
   radius: number;
   offset?: readonly [number, number, number];
@@ -124,7 +127,7 @@ function BoneHitbox({
       return;
     }
 
-    if (!isHitboxLive(attackIds)) {
+    if (!isHitboxLive(fighterId, attackIds)) {
       collider.setEnabled(false);
       return;
     }
@@ -139,7 +142,7 @@ function BoneHitbox({
     body.setTranslation(next, true);
     body.setNextKinematicTranslation(next);
     collider.setEnabled(true);
-  }, [attackIds, bone, offset, visualRef, world]);
+  }, [attackIds, bone, fighterId, offset, visualRef, world]);
 
   const collectHits = useCallback(() => {
     const collider = colliderRef.current;
@@ -165,9 +168,9 @@ function BoneHitbox({
       if (!parent) {
         return;
       }
-      tryHit(parent.handle, { x: hitX, y: hitY, z: hitZ });
+      tryHit(fighterId, parent.handle, { x: hitX, y: hitY, z: hitZ });
     });
-  }, [world]);
+  }, [fighterId, world]);
 
   useBeforePhysicsStep(moveHitbox);
   useAfterPhysicsStep(collectHits);
@@ -177,7 +180,7 @@ function BoneHitbox({
     if (!mesh) {
       return;
     }
-    const live = showRef.current && isHitboxLive(attackIds);
+    const live = showRef.current && isHitboxLive(fighterId, attackIds);
     mesh.visible = live;
     if (!live) {
       return;
@@ -204,6 +207,7 @@ function BoneHitbox({
           args={ballArgs}
           sensor
           collisionGroups={HITBOX_GROUPS}
+          activeCollisionTypes={HIT_COLLISION_TYPES}
         />
       </RigidBody>
       <mesh ref={meshRef} visible={false} frustumCulled={false}>
@@ -224,7 +228,12 @@ function BoneHitbox({
   );
 }
 
-export function AttackHitboxes({ characterId, model, visualRef }: AttackHitboxesProps) {
+export function AttackHitboxes({
+  characterId,
+  fighterId,
+  model,
+  visualRef,
+}: AttackHitboxesProps) {
   const hitboxes = useMemo(() => meleeHitboxes(characterId), [characterId]);
   const anchors = useMemo(() => {
     const found = new Map<string, Object3D>();
@@ -245,6 +254,7 @@ export function AttackHitboxes({ characterId, model, visualRef }: AttackHitboxes
     return (
       <BoneHitbox
         key={hitbox.bone}
+        fighterId={fighterId}
         bone={bone}
         radius={hitbox.radius}
         offset={hitbox.offset}

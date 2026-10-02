@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useAnimations, useGLTF } from "@react-three/drei";
 import {
   CapsuleCollider,
   interactionGroups,
   RigidBody,
+  useAfterPhysicsStep,
   type RapierCollider,
   type RapierRigidBody,
 } from "@react-three/rapier";
@@ -17,21 +18,39 @@ import {
   useAnimationController,
   type AnimationLibrary,
 } from "@/components/game/useAnimationController";
-import { useCharacterController } from "@/components/game/useCharacterController";
+import {
+  useCharacterController,
+  type FighterControl,
+  type IncomingHit,
+} from "@/components/game/useCharacterController";
 import type { ArenaSpawnPoint } from "@/lib/game/arena/desert";
 import { characters, type CharacterId, type FighterView } from "@/lib/game/characters";
 import { characterVisuals } from "@/lib/game/characters/visuals";
-import { ATTACK_PHASE } from "@/lib/game/combat/types";
+import {
+  FIGHTER_MAX_HP,
+  OPPONENT_FIGHTER_ID,
+  PLAYER_FIGHTER_ID,
+} from "@/lib/game/combat/fighters";
+import { visibleContactPoint } from "@/lib/game/combat/impactVfx";
+import { knockbackVelocity } from "@/lib/game/combat/knockback";
+import { emitHitFeedback } from "@/lib/game/combat/hitFeedback";
+import { registerHurtbox } from "@/lib/game/combat/runtime";
+import { ATTACK_PHASE, type DamageRequest } from "@/lib/game/combat/types";
+import { matchFlags } from "@/lib/game/cpu";
 import { spawnHeight, visualDrop } from "@/lib/game/locomotion";
-import { physicsGroups } from "@/lib/game/physics";
-import { useAppDispatch } from "@/store/hooks";
-import { setAttackState } from "@/store/slices/combatSlice";
+import { HIT_COLLISION_TYPES, physicsGroups } from "@/lib/game/physics";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { applyDamage, setAttackState } from "@/store/slices/combatSlice";
 
 const gltfLoaderOptions = [false, false] as const;
 const LOCKED_ROTATIONS: [boolean, boolean, boolean] = [false, false, false];
 const FIGHTER_COLLISION_GROUPS = interactionGroups(
   [physicsGroups.fighter],
   [physicsGroups.stage, physicsGroups.fighter],
+);
+const HURTBOX_GROUPS = interactionGroups(
+  [physicsGroups.hurtbox],
+  [physicsGroups.hitbox],
 );
 
 type LoadedModel = {
@@ -53,9 +72,13 @@ function shadeModel(model: Object3D) {
 
 export function Fighter({
   characterId,
+  fighterId,
+  control,
   spawn,
 }: {
   characterId: CharacterId;
+  fighterId: string;
+  control: FighterControl;
   spawn: ArenaSpawnPoint;
 }) {
   const dispatch = useAppDispatch();
@@ -108,6 +131,13 @@ export function Fighter({
   const bodyRef = useRef<RapierRigidBody>(null);
   const colliderRef = useRef<RapierCollider>(null);
   const visualRef = useRef<Group>(null);
+  const incomingHitRef = useRef<IncomingHit | null>(null);
+  const defeatedRef = useRef(false);
+  const hpRef = useRef(FIGHTER_MAX_HP);
+  const lastHitKey = useRef("");
+  const hurtDetachRef = useRef<(() => void) | null>(null);
+  const clipCommandRef = useRef({ name: character.defaultAnimation, epoch: 0 });
+  const health = useAppSelector((state) => state.combat.targets[fighterId]);
   const viewRef = useRef<FighterView>({
     form: character.driver.initialForm,
     speed: 0,
@@ -135,8 +165,113 @@ export function Fighter({
     visualRef,
     viewRef,
     character,
+    fighterId,
+    control,
+    incomingHitRef,
+    defeatedRef,
+    clipCommandRef: control === "cpu" ? clipCommandRef : null,
     initialYaw: spawn.yaw,
   });
+
+  useEffect(() => {
+    const hp = health?.hp ?? 0;
+    hpRef.current = hp;
+    defeatedRef.current = hp <= 0;
+    if (fighterId === PLAYER_FIGHTER_ID) {
+      matchFlags.playerDown = defeatedRef.current;
+    } else if (fighterId === OPPONENT_FIGHTER_ID) {
+      matchFlags.opponentDown = defeatedRef.current;
+    }
+  }, [fighterId, health?.hp]);
+
+  const takeDamage = useCallback(
+    (request: DamageRequest) => {
+      if (request.attacker === fighterId || hpRef.current <= 0) {
+        return false;
+      }
+      const hitKey = `${request.attacker}:${request.attackSerial}`;
+      if (lastHitKey.current === hitKey) {
+        return false;
+      }
+      lastHitKey.current = hitKey;
+      hpRef.current = Math.max(0, hpRef.current - request.amount);
+      defeatedRef.current = hpRef.current <= 0;
+      if (fighterId === PLAYER_FIGHTER_ID) {
+        matchFlags.playerDown = defeatedRef.current;
+      } else if (fighterId === OPPONENT_FIGHTER_ID) {
+        matchFlags.opponentDown = defeatedRef.current;
+      }
+
+      dispatch(
+        applyDamage({
+          targetId: fighterId,
+          amount: request.amount,
+          serial: request.attackSerial,
+        }),
+      );
+
+      const body = bodyRef.current;
+      let feedback = request;
+      if (body) {
+        const center = body.translation();
+        const contact = visibleContactPoint(
+          { x: request.hitX, y: request.hitY, z: request.hitZ },
+          { x: center.x, y: center.y, z: center.z },
+          locomotion.capsuleRadius + 0.08,
+        );
+        feedback = {
+          ...request,
+          hitX: contact.x,
+          hitY: contact.y,
+          hitZ: contact.z,
+        };
+        const velocity = knockbackVelocity(
+          request.facingYaw,
+          request.knockback,
+          center.x,
+          center.z,
+          request.attackerX,
+          request.attackerZ,
+          request.knockbackStyle ?? "facing",
+        );
+        incomingHitRef.current = {
+          vx: velocity.x,
+          vy: velocity.y,
+          vz: velocity.z,
+          hitstun: request.hitstun,
+        };
+      }
+      emitHitFeedback(feedback);
+      return true;
+    },
+    [dispatch, fighterId, locomotion.capsuleRadius],
+  );
+
+  const takeDamageRef = useRef(takeDamage);
+  useEffect(() => {
+    takeDamageRef.current = takeDamage;
+  }, [takeDamage]);
+
+  useAfterPhysicsStep(() => {
+    if (hurtDetachRef.current) {
+      return;
+    }
+    const body = bodyRef.current;
+    if (!body) {
+      return;
+    }
+    hurtDetachRef.current = registerHurtbox(body.handle, {
+      id: fighterId,
+      takeDamage: (request) => takeDamageRef.current(request),
+    });
+  });
+
+  useEffect(() => {
+    return () => {
+      hurtDetachRef.current?.();
+      hurtDetachRef.current = null;
+    };
+  }, []);
 
   useLayoutEffect(() => {
     if (visualRef.current) {
@@ -154,9 +289,18 @@ export function Fighter({
     });
   }, [character, scenes, visual]);
 
-  useAnimationController({ libraries, onOneShotFinished });
+  useAnimationController({
+    libraries,
+    characterId,
+    fighterId,
+    clipCommandRef: control === "cpu" ? clipCommandRef : undefined,
+    onOneShotFinished,
+  });
 
   useEffect(() => {
+    if (control !== "player") {
+      return;
+    }
     dispatch(
       setAttackState({
         attackId: null,
@@ -164,7 +308,7 @@ export function Fighter({
         activeFrames: 0,
       }),
     );
-  }, [character, dispatch]);
+  }, [character, control, dispatch]);
 
   useFrame(() => {
     const view = viewRef.current;
@@ -202,6 +346,12 @@ export function Fighter({
           friction={0}
           restitution={0}
         />
+        <CapsuleCollider
+          args={capsuleArgs}
+          collisionGroups={HURTBOX_GROUPS}
+          activeCollisionTypes={HIT_COLLISION_TYPES}
+          sensor
+        />
         <group ref={visualRef} name="character-visual" position={visualPosition}>
           {scenes.map((scene, index) => (
             <primitive
@@ -213,9 +363,10 @@ export function Fighter({
         </group>
       </RigidBody>
       {scenes.map((scene, index) => (
-        <AttackHitboxes
+          <AttackHitboxes
           key={character.models[index]?.id ?? index}
           characterId={character.id}
+          fighterId={fighterId}
           model={scene}
           visualRef={visualRef}
         />

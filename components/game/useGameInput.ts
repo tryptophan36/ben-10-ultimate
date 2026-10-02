@@ -9,7 +9,28 @@ export type GameInputState = {
   jump: boolean;
   light: boolean;
   heavy: boolean;
+  /** World-space wish direction. Null keeps movement relative to the camera. */
+  worldX: number | null;
+  worldZ: number | null;
+  /** World-space facing. Null faces the stick or the current velocity. */
+  aimX: number | null;
+  aimZ: number | null;
 };
+
+export function blankInput(): GameInputState {
+  return {
+    forward: 0,
+    strafe: 0,
+    run: false,
+    jump: false,
+    light: false,
+    heavy: false,
+    worldX: null,
+    worldZ: null,
+    aimX: null,
+    aimZ: null,
+  };
+}
 
 function isTypingTarget(target: EventTarget | null): boolean {
   return (
@@ -35,14 +56,7 @@ function isGameKey(code: string): boolean {
 }
 
 export function useGameInput() {
-  const state = useRef<GameInputState>({
-    forward: 0,
-    strafe: 0,
-    run: false,
-    jump: false,
-    light: false,
-    heavy: false,
-  });
+  const state = useRef<GameInputState>(blankInput());
 
   useEffect(() => {
     const keys = new Set<string>();

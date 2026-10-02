@@ -19,7 +19,8 @@ import {
 } from "@/lib/game/combat/runtime";
 import { getControllerDebug, subscribeControllerDebug } from "@/lib/game/runtime";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { toggleShowHitboxes, TRAINING_DUMMY_ID } from "@/store/slices/combatSlice";
+import { OPPONENT_FIGHTER_ID, PLAYER_FIGHTER_ID } from "@/lib/game/combat/fighters";
+import { toggleShowHitboxes } from "@/store/slices/combatSlice";
 import { setSelectedCharacter } from "@/store/slices/gameSlice";
 
 function DebugRow({
@@ -48,7 +49,8 @@ export function DebugHud() {
   const showHitboxes = useAppSelector((state) => state.combat.showHitboxes);
   const lastActiveFrames = useAppSelector((state) => state.combat.lastActiveFrames);
   const lastDamage = useAppSelector((state) => state.combat.lastDamage);
-  const dummy = useAppSelector((state) => state.combat.targets[TRAINING_DUMMY_ID]);
+  const playerHealth = useAppSelector((state) => state.combat.targets[PLAYER_FIGHTER_ID]);
+  const opponentHealth = useAppSelector((state) => state.combat.targets[OPPONENT_FIGHTER_ID]);
   const character = characters[selectedCharacter];
   const debug = useSyncExternalStore(
     subscribeControllerDebug,
@@ -148,8 +150,10 @@ export function DebugHud() {
         />
         <DebugRow label="Active frames" value={String(lastActiveFrames)} />
         {hud.showTargetsHit ? <DebugRow label="Targets hit" value={String(targetsHit)} /> : null}
-        <DebugRow label="Dummy HP" value={dummy ? `${dummy.hp}` : "—"} />
-        <DebugRow label="Dummy stun" value={dummy?.hitstun ? "yes" : "no"} />
+        <DebugRow label="Your HP" value={playerHealth ? `${playerHealth.hp}` : "—"} />
+        <DebugRow label="Opponent HP" value={opponentHealth ? `${opponentHealth.hp}` : "—"} />
+        <DebugRow label="You stun" value={playerHealth?.hitstun ? "yes" : "no"} />
+        <DebugRow label="Opponent stun" value={opponentHealth?.hitstun ? "yes" : "no"} />
         <DebugRow label="Last hit" value={lastDamage ? String(lastDamage.amount) : "—"} />
         {showHitboxes ? (
           <>

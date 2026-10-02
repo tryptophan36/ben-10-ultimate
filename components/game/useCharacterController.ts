@@ -20,11 +20,13 @@ import {
   presentationForm,
 } from "@/lib/game/combat/motion";
 import {
-  attackRuntime,
   endAttackInstance,
+  getAttackRuntime,
+  publishAttackerPose,
   stepAttackClock,
   type AttackClock,
 } from "@/lib/game/combat/runtime";
+import { createCpuMemory, writeCpuInput, type CpuMemory } from "@/lib/game/cpu";
 import {
   ATTACK_PHASE,
   type AttackDefinition,
@@ -39,9 +41,13 @@ import {
 import { PHYSICS_TIMESTEP } from "@/lib/game/physics";
 import { playerFocus, publishControllerDebug } from "@/lib/game/runtime";
 import { useAppDispatch } from "@/store/hooks";
-import { setAttackState } from "@/store/slices/combatSlice";
+import { setAttackState, setTargetHitstun } from "@/store/slices/combatSlice";
 import { playAnimation } from "@/store/slices/gameSlice";
-import { useGameInput, type GameInputState } from "@/components/game/useGameInput";
+import {
+  blankInput,
+  useGameInput,
+  type GameInputState,
+} from "@/components/game/useGameInput";
 
 const WORLD_UP = new Vector3(0, 1, 0);
 const SLOT_ORDER: readonly MoveSlot[] = ["light", "heavy"];
@@ -62,7 +68,18 @@ type Motion = {
   hasMoveInput: boolean;
   runHeld: boolean;
   speed: number;
+  hitstunUntil: number;
+  stunPublished: boolean;
 };
+
+export type IncomingHit = {
+  vx: number;
+  vy: number;
+  vz: number;
+  hitstun: number;
+};
+
+export type FighterControl = "player" | "cpu";
 
 type CharacterControllerOptions = {
   bodyRef: RefObject<RapierRigidBody | null>;
@@ -70,6 +87,12 @@ type CharacterControllerOptions = {
   visualRef: RefObject<Group | null>;
   viewRef: RefObject<FighterView>;
   character: CharacterDefinition;
+  fighterId: string;
+  control: FighterControl;
+  incomingHitRef: RefObject<IncomingHit | null>;
+  defeatedRef: RefObject<boolean>;
+  /** Set for the computer fighter so its clips stay off the player's animation state. */
+  clipCommandRef: RefObject<{ name: string; epoch: number }> | null;
   initialYaw?: number;
 };
 
@@ -146,13 +169,15 @@ function startMove(
 function tickAttack(
   character: CharacterDefinition,
   motion: Motion,
+  fighterId: string,
   now: number,
   grounded: boolean,
 ): AttackClock {
   const attack = motion.attackId ? attackById(motion.attackId) : undefined;
   const clock = stepAttackClock({
+    fighterId,
     animationName: attack?.animation ?? null,
-    attackerId: character.id,
+    attackerId: fighterId,
     now,
     startedAt: motion.attackStartedAt,
     lockSeconds: character.locomotion.attackLockSeconds,
@@ -179,12 +204,20 @@ export function useCharacterController({
   visualRef,
   viewRef,
   character,
+  fighterId,
+  control,
+  incomingHitRef,
+  defeatedRef,
+  clipCommandRef,
   initialYaw = 0,
 }: CharacterControllerOptions) {
   const dispatch = useAppDispatch();
   const { world, rapier } = useRapier();
   const { camera } = useThree();
-  const inputRef = useGameInput();
+  const keyboardRef = useGameInput();
+  const cpuInputRef = useRef<GameInputState>(blankInput());
+  const cpuMemoryRef = useRef<CpuMemory>(createCpuMemory());
+  const inputRef = control === "player" ? keyboardRef : cpuInputRef;
   const config = character.locomotion;
   const controllerRef = useRef<ReturnType<typeof world.createCharacterController> | null>(null);
   const motionRef = useRef<Motion>({
@@ -203,6 +236,8 @@ export function useCharacterController({
     hasMoveInput: false,
     runHeld: false,
     speed: 0,
+    hitstunUntil: 0,
+    stunPublished: false,
   });
   const forward = useRef(new Vector3());
   const right = useRef(new Vector3());
@@ -234,6 +269,9 @@ export function useCharacterController({
 
   const publishCombat = useCallback(
     (attackId: string | null, phase: AttackPhase, activeFrames: number | null) => {
+      if (control !== "player") {
+        return;
+      }
       const published = publishedCombat.current;
       if (published.attackId === attackId && published.phase === phase && activeFrames === null) {
         return;
@@ -242,7 +280,7 @@ export function useCharacterController({
       published.phase = phase;
       dispatch(setAttackState({ attackId, phase, activeFrames }));
     },
-    [dispatch],
+    [control, dispatch],
   );
 
   const requestAnimation = useCallback(
@@ -252,9 +290,16 @@ export function useCharacterController({
         return;
       }
       motion.lastAnimation = name;
+      if (clipCommandRef?.current) {
+        clipCommandRef.current = {
+          name,
+          epoch: clipCommandRef.current.epoch + 1,
+        };
+        return;
+      }
       dispatch(playAnimation(name));
     },
-    [dispatch],
+    [clipCommandRef, dispatch],
   );
 
   const releaseToLocomotion = useCallback(
@@ -293,15 +338,16 @@ export function useCharacterController({
         return null;
       }
       if (matched) {
+        const attackState = getAttackRuntime(fighterId);
         if (
-          attackRuntime.phase === ATTACK_PHASE.startup ||
-          attackRuntime.phase === ATTACK_PHASE.active
+          attackState.phase === ATTACK_PHASE.startup ||
+          attackState.phase === ATTACK_PHASE.active
         ) {
           return null;
         }
-        if (attackRuntime.live) {
+        if (attackState.live) {
           motion.attackId = null;
-          endAttackInstance();
+          endAttackInstance(fighterId);
         }
         return releaseToLocomotion(motion);
       }
@@ -334,7 +380,7 @@ export function useCharacterController({
       motion.lastAnimation = result.animation;
       return result.animation;
     },
-    [character, inputRef, releaseToLocomotion, viewRef],
+    [character, fighterId, inputRef, releaseToLocomotion, viewRef],
   );
 
   const step = useCallback(() => {
@@ -359,20 +405,81 @@ export function useCharacterController({
     const input = inputRef.current;
     const motion = motionRef.current;
     const now = performance.now();
+    const positionNow = body.translation();
 
-    camera.getWorldDirection(forward.current);
-    forward.current.y = 0;
-    if (forward.current.lengthSq() < 1e-8) {
-      forward.current.set(0, 0, 1);
-    } else {
-      forward.current.normalize();
+    const queuedHit = incomingHitRef.current;
+    if (queuedHit) {
+      incomingHitRef.current = null;
+      motion.vx = queuedHit.vx;
+      motion.vz = queuedHit.vz;
+      if (queuedHit.vy > 0) {
+        motion.vy = queuedHit.vy;
+        motion.grounded = false;
+        motion.canJump = false;
+        motion.coyote = 0;
+      }
+      motion.hitstunUntil = now + queuedHit.hitstun * 1000;
+      if (!motion.stunPublished) {
+        motion.stunPublished = true;
+        dispatch(setTargetHitstun({ targetId: fighterId, hitstun: true }));
+      }
+      if (motion.attackId) {
+        motion.attackId = null;
+        endAttackInstance(fighterId);
+        publishCombat(null, ATTACK_PHASE.idle, null);
+      }
     }
-    right.current.crossVectors(forward.current, WORLD_UP).normalize();
+
+    if (motion.stunPublished && now >= motion.hitstunUntil) {
+      motion.stunPublished = false;
+      dispatch(setTargetHitstun({ targetId: fighterId, hitstun: false }));
+    }
+
+    if (control === "cpu") {
+      writeCpuInput(
+        input,
+        cpuMemoryRef.current,
+        {
+          x: positionNow.x,
+          z: positionNow.z,
+          attacking: motion.attackId !== null,
+          hitstun: now < motion.hitstunUntil,
+          defeated: defeatedRef.current,
+        },
+        { x: playerFocus.feet.x, z: playerFocus.feet.z },
+        now,
+      );
+    }
+
+    const stunned = now < motion.hitstunUntil || defeatedRef.current;
+    if (stunned) {
+      input.light = false;
+      input.heavy = false;
+      input.jump = false;
+    }
+    const moveForward = stunned ? 0 : input.forward;
+    const moveStrafe = stunned ? 0 : input.strafe;
+    const moveRun = !stunned && input.run;
+    const worldX = stunned ? null : input.worldX;
+    const worldZ = stunned ? null : input.worldZ;
 
     wish.current.set(0, 0, 0);
-    if (input.forward !== 0 || input.strafe !== 0) {
-      wish.current.addScaledVector(forward.current, input.forward);
-      wish.current.addScaledVector(right.current, input.strafe);
+    if (worldX !== null && worldZ !== null) {
+      wish.current.set(worldX, 0, worldZ);
+      if (wish.current.lengthSq() > 1) {
+        wish.current.normalize();
+      }
+    } else if (moveForward !== 0 || moveStrafe !== 0) {
+      camera.getWorldDirection(forward.current);
+      forward.current.y = 0;
+      if (forward.current.lengthSq() < 1e-8) {
+        forward.current.set(0, 0, 1);
+      } else {
+        forward.current.normalize();
+      }
+      right.current.crossVectors(forward.current, WORLD_UP).normalize();
+      wish.current.addScaledVector(forward.current, moveForward);
+      wish.current.addScaledVector(right.current, moveStrafe);
       if (wish.current.lengthSq() > 1) {
         wish.current.normalize();
       }
@@ -393,12 +500,12 @@ export function useCharacterController({
     };
 
     if (motion.attackId) {
-      acceptClock(tickAttack(character, motion, now, motion.grounded));
+      acceptClock(tickAttack(character, motion, fighterId, now, motion.grounded));
     }
-    if (!motion.attackId) {
+    if (!motion.attackId && !stunned) {
       const started = startMove(character, motion, input, now);
       if (started?.stepOnStart) {
-        acceptClock(tickAttack(character, motion, now, motion.grounded));
+        acceptClock(tickAttack(character, motion, fighterId, now, motion.grounded));
       }
     }
 
@@ -412,14 +519,15 @@ export function useCharacterController({
     const holdPlanar = character.driver.holdPlanar({
       grounded: motion.grounded,
       hasMoveInput,
-      runHeld: input.run,
+      runHeld: moveRun,
       speed: motion.speed,
       form: motion.form,
     });
-    const targetSpeed = influence.speedCap ?? (input.run ? config.runSpeed : config.walkSpeed);
-    const targetX = !holdPlanar && propel ? wish.current.x * targetSpeed : 0;
-    const targetZ = !holdPlanar && propel ? wish.current.z * targetSpeed : 0;
-    if (influence.lockPlanar || holdPlanar) {
+    const rooted = !stunned && (influence.lockPlanar || holdPlanar);
+    const targetSpeed = influence.speedCap ?? (moveRun ? config.runSpeed : config.walkSpeed);
+    const targetX = !rooted && propel ? wish.current.x * targetSpeed : 0;
+    const targetZ = !rooted && propel ? wish.current.z * targetSpeed : 0;
+    if (rooted) {
       motion.vx = 0;
       motion.vz = 0;
     } else {
@@ -498,8 +606,10 @@ export function useCharacterController({
       }
     }
 
-    const faceX = hasMoveInput ? wish.current.x : motion.vx;
-    const faceZ = hasMoveInput ? wish.current.z : motion.vz;
+    const aimX = stunned ? null : input.aimX;
+    const aimZ = stunned ? null : input.aimZ;
+    const faceX = aimX !== null && aimZ !== null ? aimX : hasMoveInput ? wish.current.x : motion.vx;
+    const faceZ = aimX !== null && aimZ !== null ? aimZ : hasMoveInput ? wish.current.z : motion.vz;
     if (Math.hypot(faceX, faceZ) > 0.05) {
       motion.yaw = stepYaw(
         motion.yaw,
@@ -512,18 +622,19 @@ export function useCharacterController({
       visualRef.current.rotation.y = motion.yaw;
     }
 
+    const attackState = getAttackRuntime(fighterId);
     if (attack?.cancelOnRise && motion.attackId === attack.id && !motion.grounded && motion.vy > 0.05) {
       const activeFrames =
-        attackRuntime.phase === ATTACK_PHASE.active ? attackRuntime.activeFrames : null;
+        attackState.phase === ATTACK_PHASE.active ? attackState.activeFrames : null;
       motion.attackId = null;
-      endAttackInstance();
+      endAttackInstance(fighterId);
       publishCombat(null, ATTACK_PHASE.idle, activeFrames);
     }
 
     const actualSpeed = Math.hypot(moveX, moveZ) / dt;
     motion.speed = actualSpeed;
     motion.hasMoveInput = hasMoveInput;
-    motion.runHeld = input.run;
+    motion.runHeld = moveRun;
 
     const playing = motion.attackId ? attackById(motion.attackId) : undefined;
     let movementState: string;
@@ -543,24 +654,32 @@ export function useCharacterController({
     viewRef.current.speed = actualSpeed;
 
     const halfExtent = capsuleHalfExtent(config);
-    playerFocus.feet.set(nextX, nextY - halfExtent - config.colliderOffset, nextZ);
-    playerFocus.yaw = motion.yaw;
-    playerFocus.attack = playing?.animation ?? null;
-
-    publishControllerDebug(
-      {
-        movementState,
-        grounded: motion.grounded,
-        speed: actualSpeed,
-      },
-      now,
-    );
+    const feetY = nextY - halfExtent - config.colliderOffset;
+    publishAttackerPose(fighterId, nextX, nextZ, motion.yaw);
+    if (control === "player") {
+      playerFocus.feet.set(nextX, feetY, nextZ);
+      playerFocus.yaw = motion.yaw;
+      playerFocus.attack = playing?.animation ?? null;
+      publishControllerDebug(
+        {
+          movementState,
+          grounded: motion.grounded,
+          speed: actualSpeed,
+        },
+        now,
+      );
+    }
   }, [
     bodyRef,
     camera,
     character,
     colliderRef,
     config,
+    control,
+    defeatedRef,
+    dispatch,
+    fighterId,
+    incomingHitRef,
     inputRef,
     publishCombat,
     rapier,
@@ -571,9 +690,9 @@ export function useCharacterController({
 
   useEffect(() => {
     return () => {
-      endAttackInstance();
+      endAttackInstance(fighterId);
     };
-  }, []);
+  }, [fighterId]);
 
   useBeforePhysicsStep(step);
 
