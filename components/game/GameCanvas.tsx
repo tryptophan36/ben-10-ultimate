@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useLayoutEffect, useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
-import { CuboidCollider, Physics, RigidBody, interactionGroups } from "@react-three/rapier";
+import { Physics } from "@react-three/rapier";
 import { NeutralToneMapping } from "three";
 import { Camera } from "@/components/game/Camera";
 import { HitLocationMarker } from "@/components/game/combat/HitLocationMarker";
@@ -14,12 +14,15 @@ import {
   trainingDummyHeight,
 } from "@/components/game/combat/TrainingDummy";
 import { DebugHud } from "@/components/game/DebugHud";
+import { DesertArena, useDesertArena } from "@/components/game/DesertArena";
 import { Fighter } from "@/components/game/Fighter";
+import { offsetFromSpawn } from "@/lib/game/arena/desert";
 import { resetCameraShake } from "@/lib/game/camera/cameraShake";
 import { resetFeelDebug } from "@/lib/game/combat/feelDebug";
 import { resetHitstop } from "@/lib/game/combat/hitstop";
 import { clearImpacts } from "@/lib/game/combat/impactVfx";
-import { GRAVITY, PHYSICS_TIMESTEP, physicsGroups } from "@/lib/game/physics";
+import { GRAVITY, PHYSICS_TIMESTEP } from "@/lib/game/physics";
+import { playerFocus } from "@/lib/game/runtime";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   resetCombat,
@@ -27,56 +30,77 @@ import {
   TRAINING_DUMMY_C_ID,
 } from "@/store/slices/combatSlice";
 import { endSession, markSessionActive } from "@/store/slices/gameSlice";
+import type { CharacterId } from "@/lib/game/characters";
 
 function Lighting() {
   return (
     <>
-      <hemisphereLight args={["#e8eeff", "#8d7362", 0.9]} />
-      <ambientLight intensity={0.35} />
+      <hemisphereLight args={["#f3f6ff", "#c4a06a", 0.85]} />
+      <ambientLight intensity={0.28} />
       <directionalLight
-        position={[5, 8, 4]}
-        intensity={2.6}
+        position={[12, 18, 8]}
+        intensity={2.8}
+        color="#fff4e0"
         castShadow
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
-        shadow-camera-near={0.5}
-        shadow-camera-far={40}
-        shadow-camera-left={-14}
-        shadow-camera-right={14}
-        shadow-camera-top={14}
-        shadow-camera-bottom={-14}
+        shadow-bias={-0.0004}
+        shadow-camera-near={1}
+        shadow-camera-far={60}
+        shadow-camera-left={-18}
+        shadow-camera-right={18}
+        shadow-camera-top={18}
+        shadow-camera-bottom={-18}
       />
-      <directionalLight position={[-4, 3.5, -2]} intensity={0.75} />
+      <directionalLight position={[-8, 6, -4]} intensity={0.45} color="#d6e4ff" />
     </>
   );
 }
 
 const WORLD_GRAVITY: [number, number, number] = [0, GRAVITY, 0];
-const DUMMY_B_POSITION: [number, number, number] = [1.8, trainingDummyHeight(), -0.8];
-const DUMMY_C_POSITION: [number, number, number] = [0, trainingDummyHeight(), 6];
-const GROUND_SIZE = 24;
-const GROUND_COLLIDER_ARGS: [number, number, number] = [GROUND_SIZE / 2, 0.25, GROUND_SIZE / 2];
-const GROUND_COLLIDER_POSITION: [number, number, number] = [0, -0.25, 0];
-const STAGE_COLLISION_GROUPS = interactionGroups(
-  [physicsGroups.stage],
-  [physicsGroups.fighter],
-);
 
-function Ground() {
+function ArenaSession({ characterId }: { characterId: CharacterId }) {
+  const arena = useDesertArena();
+  const playerSpawn = arena.spawns.player1;
+  const dummyHeight = trainingDummyHeight();
+  const dummyPositions = useMemo(
+    () => ({
+      a: offsetFromSpawn(playerSpawn, 1.2, 1.5, dummyHeight),
+      b: offsetFromSpawn(playerSpawn, 1.2, 2.4, dummyHeight),
+      c: offsetFromSpawn(playerSpawn, 1.8, 1.6, dummyHeight),
+    }),
+    [dummyHeight, playerSpawn],
+  );
+  useLayoutEffect(() => {
+    playerFocus.feet.set(
+      playerSpawn.position[0],
+      playerSpawn.position[1],
+      playerSpawn.position[2],
+    );
+    playerFocus.yaw = playerSpawn.yaw;
+  }, [playerSpawn]);
+
   return (
-    <RigidBody type="fixed" colliders={false}>
-      <mesh rotation-x={-Math.PI / 2} receiveShadow>
-        <planeGeometry args={[GROUND_SIZE, GROUND_SIZE]} />
-        <meshStandardMaterial color="#323846" roughness={1} metalness={0} />
-      </mesh>
-      <CuboidCollider
-        args={GROUND_COLLIDER_ARGS}
-        position={GROUND_COLLIDER_POSITION}
-        collisionGroups={STAGE_COLLISION_GROUPS}
-        friction={1}
-        restitution={0}
+    <Physics gravity={WORLD_GRAVITY} timeStep={PHYSICS_TIMESTEP} colliders={false}>
+      <HitstopSim />
+      <Camera
+        initialYaw={playerSpawn.yaw + 0.55}
+        initialFocus={playerSpawn.position}
       />
-    </RigidBody>
+      <DesertArena arena={arena} />
+      <Fighter key={characterId} characterId={characterId} spawn={playerSpawn} />
+      <TrainingDummy position={dummyPositions.a} />
+      <TrainingDummy
+        id={TRAINING_DUMMY_B_ID}
+        position={dummyPositions.b}
+        label="Dummy B"
+      />
+      <TrainingDummy
+        id={TRAINING_DUMMY_C_ID}
+        position={dummyPositions.c}
+        label="Dummy C"
+      />
+    </Physics>
   );
 }
 
@@ -102,7 +126,7 @@ export function GameCanvas() {
   }, [dispatch]);
 
   return (
-    <div className="relative h-dvh w-full overflow-hidden bg-[#101218]">
+    <div className="relative h-dvh w-full overflow-hidden bg-[#8eb4d4]">
       <DebugHud />
       <Canvas
         className="h-full w-full"
@@ -114,33 +138,14 @@ export function GameCanvas() {
           gl.toneMappingExposure = 1;
         }}
       >
-        <color attach="background" args={["#101218"]} />
+        <color attach="background" args={["#8eb4d4"]} />
+        <fog attach="fog" args={["#c6b396", 28, 55]} />
         <HitstopClock />
-        <Camera />
         <Lighting />
         <ImpactBursts />
         <HitLocationMarker />
         <Suspense fallback={null}>
-          <Physics
-            gravity={WORLD_GRAVITY}
-            timeStep={PHYSICS_TIMESTEP}
-            colliders={false}
-          >
-            <HitstopSim />
-            <Ground />
-            <Fighter key={selectedCharacter} characterId={selectedCharacter} />
-            <TrainingDummy />
-            <TrainingDummy
-              id={TRAINING_DUMMY_B_ID}
-              position={DUMMY_B_POSITION}
-              label="Dummy B"
-            />
-            <TrainingDummy
-              id={TRAINING_DUMMY_C_ID}
-              position={DUMMY_C_POSITION}
-              label="Dummy C"
-            />
-          </Physics>
+          <ArenaSession characterId={selectedCharacter} />
         </Suspense>
       </Canvas>
     </div>

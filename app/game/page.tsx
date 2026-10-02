@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { GameCanvas } from "@/components/game/GameCanvas";
 
 export const metadata: Metadata = {
-  title: "Four Arms — Ben 10 Ultimate",
-  description: "Four Arms versus a training dummy",
+  title: "Desert Arena — Ben 10 Ultimate",
+  description: "Single-player fight in the desert arena",
 };
 
 export default function GamePage() {

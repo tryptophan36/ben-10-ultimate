@@ -18,6 +18,7 @@ import {
   type AnimationLibrary,
 } from "@/components/game/useAnimationController";
 import { useCharacterController } from "@/components/game/useCharacterController";
+import type { ArenaSpawnPoint } from "@/lib/game/arena/desert";
 import { characters, type CharacterId, type FighterView } from "@/lib/game/characters";
 import { characterVisuals } from "@/lib/game/characters/visuals";
 import { ATTACK_PHASE } from "@/lib/game/combat/types";
@@ -50,7 +51,13 @@ function shadeModel(model: Object3D) {
   });
 }
 
-export function Fighter({ characterId }: { characterId: CharacterId }) {
+export function Fighter({
+  characterId,
+  spawn,
+}: {
+  characterId: CharacterId;
+  spawn: ArenaSpawnPoint;
+}) {
   const dispatch = useAppDispatch();
   const character = characters[characterId];
   const visual = characterVisuals[characterId];
@@ -106,8 +113,12 @@ export function Fighter({ characterId }: { characterId: CharacterId }) {
     speed: 0,
   });
   const spawnPosition = useMemo<[number, number, number]>(
-    () => [0, spawnHeight(locomotion), 0],
-    [locomotion],
+    () => [
+      spawn.position[0],
+      spawn.position[1] + spawnHeight(locomotion),
+      spawn.position[2],
+    ],
+    [locomotion, spawn],
   );
   const visualPosition = useMemo<[number, number, number]>(
     () => [0, visualDrop(locomotion), 0],
@@ -124,7 +135,14 @@ export function Fighter({ characterId }: { characterId: CharacterId }) {
     visualRef,
     viewRef,
     character,
+    initialYaw: spawn.yaw,
   });
+
+  useLayoutEffect(() => {
+    if (visualRef.current) {
+      visualRef.current.rotation.y = spawn.yaw;
+    }
+  }, [spawn.yaw, visualRef]);
 
   useLayoutEffect(() => {
     const visibleId = character.visibleModel(character.driver.initialForm);

@@ -70,6 +70,7 @@ type CharacterControllerOptions = {
   visualRef: RefObject<Group | null>;
   viewRef: RefObject<FighterView>;
   character: CharacterDefinition;
+  initialYaw?: number;
 };
 
 function sampleOf(motion: Motion): LocomotionSample {
@@ -178,6 +179,7 @@ export function useCharacterController({
   visualRef,
   viewRef,
   character,
+  initialYaw = 0,
 }: CharacterControllerOptions) {
   const dispatch = useAppDispatch();
   const { world, rapier } = useRapier();
@@ -189,7 +191,7 @@ export function useCharacterController({
     vx: 0,
     vz: 0,
     vy: 0,
-    yaw: 0,
+    yaw: initialYaw,
     grounded: true,
     canJump: true,
     coyote: config.coyoteTime,
