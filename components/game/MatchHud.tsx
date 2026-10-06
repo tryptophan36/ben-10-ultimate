@@ -1,6 +1,6 @@
 "use client";
 
-import { characterIds, characters } from "@/lib/game/characters";
+import { characters, opponentOf } from "@/lib/game/characters";
 import { OPPONENT_FIGHTER_ID, PLAYER_FIGHTER_ID } from "@/lib/game/combat/fighters";
 import { useAppSelector } from "@/store/hooks";
 
@@ -36,16 +36,18 @@ function HealthBar({
 
 export function MatchHud() {
   const selectedCharacter = useAppSelector((state) => state.game.selectedCharacter);
+  const matchMode = useAppSelector((state) => state.game.matchMode);
   const player = useAppSelector((state) => state.combat.targets[PLAYER_FIGHTER_ID]);
   const opponent = useAppSelector((state) => state.combat.targets[OPPONENT_FIGHTER_ID]);
-  const opponentIndex = (characterIds.indexOf(selectedCharacter) + 1) % characterIds.length;
-  const opponentId = characterIds[opponentIndex] ?? selectedCharacter;
+  const opponentId = opponentOf(selectedCharacter);
   const playerName = characters[selectedCharacter].name;
   const opponentName = characters[opponentId].name;
   const playerHp = player?.hp ?? 0;
   const opponentHp = opponent?.hp ?? 0;
-  const result =
-    playerHp <= 0 && opponentHp <= 0
+  const fighting = matchMode === "cpu";
+  const result = !fighting
+    ? null
+    : playerHp <= 0 && opponentHp <= 0
       ? "Draw"
       : opponentHp <= 0
         ? "You win"
@@ -54,7 +56,10 @@ export function MatchHud() {
           : null;
 
   return (
-    <div className="pointer-events-none absolute top-3 right-3 z-10 flex flex-col items-end gap-3">
+    <div
+      className="pointer-events-none absolute top-3 right-3 z-10 flex flex-col items-end gap-3"
+      data-match-mode={matchMode}
+    >
       {result ? (
         <p
           data-match-result={result}
@@ -70,13 +75,19 @@ export function MatchHud() {
           maxHp={player?.maxHp ?? 1}
           fillClassName="bg-emerald-400"
         />
-        <span className="pb-1 font-mono text-[10px] tracking-[0.2em] text-zinc-400">VS</span>
-        <HealthBar
-          label={opponentName}
-          hp={opponentHp}
-          maxHp={opponent?.maxHp ?? 1}
-          fillClassName="bg-rose-400"
-        />
+        {fighting ? (
+          <>
+            <span className="pb-1 font-mono text-[10px] tracking-[0.2em] text-zinc-400">VS</span>
+            <HealthBar
+              label={opponentName}
+              hp={opponentHp}
+              maxHp={opponent?.maxHp ?? 1}
+              fillClassName="bg-rose-400"
+            />
+          </>
+        ) : (
+          <span className="pb-1 font-mono text-[10px] tracking-[0.22em] text-zinc-300">TRAINING</span>
+        )}
       </div>
     </div>
   );

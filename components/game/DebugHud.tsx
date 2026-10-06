@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
-import { characterIds, characters, controlHint } from "@/lib/game/characters";
+import { useSyncExternalStore } from "react";
+import { characters, controlHint } from "@/lib/game/characters";
 import {
   getFeelDebug,
   getFeelDebugServerSnapshot,
@@ -18,10 +18,8 @@ import {
   subscribeAttackHits,
 } from "@/lib/game/combat/runtime";
 import { getControllerDebug, subscribeControllerDebug } from "@/lib/game/runtime";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { OPPONENT_FIGHTER_ID, PLAYER_FIGHTER_ID } from "@/lib/game/combat/fighters";
-import { toggleShowHitboxes } from "@/store/slices/combatSlice";
-import { setSelectedCharacter } from "@/store/slices/gameSlice";
+import { useAppSelector } from "@/store/hooks";
 
 function DebugRow({
   label,
@@ -41,7 +39,6 @@ function DebugRow({
 }
 
 export function DebugHud() {
-  const dispatch = useAppDispatch();
   const currentAnimation = useAppSelector((state) => state.game.currentAnimation);
   const selectedCharacter = useAppSelector((state) => state.game.selectedCharacter);
   const attackPhase = useAppSelector((state) => state.combat.attackPhase);
@@ -72,34 +69,6 @@ export function DebugHud() {
     getAttackHits,
     getAttackHitsServerSnapshot,
   );
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) {
-        return;
-      }
-      const target = event.target;
-      if (
-        target instanceof HTMLElement &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
-      ) {
-        return;
-      }
-      if (event.code === "KeyH") {
-        dispatch(toggleShowHitboxes());
-      }
-      if (event.code === "KeyC") {
-        const index = characterIds.indexOf(selectedCharacter);
-        const next = characterIds[(index + 1) % characterIds.length] ?? selectedCharacter;
-        dispatch(setSelectedCharacter(next));
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [dispatch, selectedCharacter]);
 
   const hud = character.hud;
   const attackRows = hud.attackHud({
@@ -190,7 +159,7 @@ export function DebugHud() {
           <span className="text-zinc-200">H</span> hitboxes
         </li>
         <li>
-          <span className="text-zinc-200">C</span> switch character
+          <span className="text-zinc-200">`</span> hide debug
         </li>
       </ul>
     </aside>

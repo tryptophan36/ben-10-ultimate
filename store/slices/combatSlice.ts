@@ -38,7 +38,7 @@ type CombatState = {
 const initialState: CombatState = {
   attackId: null,
   attackPhase: ATTACK_PHASE.idle,
-  showHitboxes: true,
+  showHitboxes: false,
   lastActiveFrames: 0,
   lastDamage: null,
   targets: {
@@ -106,7 +106,7 @@ const combatSlice = createSlice({
       return {
         attackId: null,
         attackPhase: ATTACK_PHASE.idle,
-        showHitboxes: true,
+        showHitboxes: false,
         lastActiveFrames: 0,
         lastDamage: null,
         targets: {

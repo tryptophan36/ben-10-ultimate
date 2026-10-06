@@ -1,6 +1,7 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import { resolveAnimationName } from "@/lib/game/animations";
 import { characters, type CharacterId } from "@/lib/game/characters";
+import type { ArenaId, MatchMode } from "@/lib/game/matchSetup";
 
 const initialCharacter: CharacterId = "four-arms";
 
@@ -9,6 +10,9 @@ export type GameStatus = "idle" | "loading" | "playing";
 type GameState = {
   currentAnimation: string;
   selectedCharacter: CharacterId;
+  matchMode: MatchMode;
+  arenaId: ArenaId;
+  showDebugHud: boolean;
   gameStatus: GameStatus;
   availableAnimations: string[];
   animationEpoch: number;
@@ -17,6 +21,9 @@ type GameState = {
 const initialState: GameState = {
   currentAnimation: characters[initialCharacter].defaultAnimation,
   selectedCharacter: initialCharacter,
+  matchMode: "cpu",
+  arenaId: "desert",
+  showDebugHud: false,
   gameStatus: "idle",
   availableAnimations: [],
   animationEpoch: 0,
@@ -54,6 +61,15 @@ const gameSlice = createSlice({
       state.gameStatus = "loading";
       state.animationEpoch += 1;
     },
+    setMatchMode(state, action: PayloadAction<MatchMode>) {
+      state.matchMode = action.payload;
+    },
+    setSelectedArena(state, action: PayloadAction<ArenaId>) {
+      state.arenaId = action.payload;
+    },
+    toggleDebugHud(state) {
+      state.showDebugHud = !state.showDebugHud;
+    },
     registerAnimations(state, action: PayloadAction<string[]>) {
       if (!sameNames(state.availableAnimations, action.payload)) {
         state.availableAnimations = action.payload;
@@ -86,6 +102,9 @@ export const {
   endSession,
   setGameStatus,
   setSelectedCharacter,
+  setMatchMode,
+  setSelectedArena,
+  toggleDebugHud,
   registerAnimations,
   playAnimation,
 } = gameSlice.actions;

@@ -4,17 +4,20 @@ import { Suspense, useEffect, useLayoutEffect } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Physics } from "@react-three/rapier";
 import { NeutralToneMapping } from "three";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Camera } from "@/components/game/Camera";
 import { HitLocationMarker } from "@/components/game/combat/HitLocationMarker";
 import { HitstopClock } from "@/components/game/combat/HitstopClock";
 import { HitstopSim } from "@/components/game/combat/HitstopSim";
 import { ImpactBursts } from "@/components/game/combat/ImpactBursts";
+import { TrainingDummy, trainingDummyHeight } from "@/components/game/combat/TrainingDummy";
 import { DebugHud } from "@/components/game/DebugHud";
 import { DesertArena, useDesertArena } from "@/components/game/DesertArena";
 import { Fighter } from "@/components/game/Fighter";
 import { MatchHud } from "@/components/game/MatchHud";
 import { resetCameraShake } from "@/lib/game/camera/cameraShake";
-import { characterIds, type CharacterId } from "@/lib/game/characters";
+import { isCharacterId, opponentOf, type CharacterId } from "@/lib/game/characters";
 import { OPPONENT_FIGHTER_ID, PLAYER_FIGHTER_ID } from "@/lib/game/combat/fighters";
 import { resetFeelDebug } from "@/lib/game/combat/feelDebug";
 import { resetHitstop } from "@/lib/game/combat/hitstop";
@@ -24,13 +27,23 @@ import { resetMatchFlags } from "@/lib/game/cpu";
 import { GRAVITY, PHYSICS_TIMESTEP } from "@/lib/game/physics";
 import { playerFocus } from "@/lib/game/runtime";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { resetCombat } from "@/store/slices/combatSlice";
-import { endSession, markSessionActive } from "@/store/slices/gameSlice";
-
-function opponentCharacter(id: CharacterId): CharacterId {
-  const index = characterIds.indexOf(id);
-  return characterIds[(index + 1) % characterIds.length] ?? id;
-}
+import {
+  resetCombat,
+  toggleShowHitboxes,
+  TRAINING_DUMMY_B_ID,
+  TRAINING_DUMMY_C_ID,
+  TRAINING_DUMMY_ID,
+} from "@/store/slices/combatSlice";
+import {
+  endSession,
+  markSessionActive,
+  setMatchMode,
+  setSelectedArena,
+  setSelectedCharacter,
+  toggleDebugHud,
+} from "@/store/slices/gameSlice";
+import type { ArenaSpawnPoint } from "@/lib/game/arena/desert";
+import { parseArenaId, parseMatchMode, type MatchMode } from "@/lib/game/matchSetup";
 
 function Lighting() {
   return (
@@ -59,11 +72,29 @@ function Lighting() {
 
 const WORLD_GRAVITY: [number, number, number] = [0, GRAVITY, 0];
 
-function ArenaSession({ characterId }: { characterId: CharacterId }) {
+function dummyPosition(
+  spawn: ArenaSpawnPoint,
+  offsetX: number,
+  offsetZ: number,
+): [number, number, number] {
+  return [
+    spawn.position[0] + offsetX,
+    spawn.position[1] + trainingDummyHeight(),
+    spawn.position[2] + offsetZ,
+  ];
+}
+
+function ArenaSession({
+  characterId,
+  mode,
+}: {
+  characterId: CharacterId;
+  mode: MatchMode;
+}) {
   const arena = useDesertArena();
   const playerSpawn = arena.spawns.player1;
   const opponentSpawn = arena.spawns.player2;
-  const opponentId = opponentCharacter(characterId);
+  const opponentId = opponentOf(characterId);
   useLayoutEffect(() => {
     playerFocus.feet.set(
       playerSpawn.position[0],
@@ -88,20 +119,76 @@ function ArenaSession({ characterId }: { characterId: CharacterId }) {
         control="player"
         spawn={playerSpawn}
       />
-      <Fighter
-        key={`cpu-${opponentId}`}
-        characterId={opponentId}
-        fighterId={OPPONENT_FIGHTER_ID}
-        control="cpu"
-        spawn={opponentSpawn}
-      />
+      {mode === "cpu" ? (
+        <Fighter
+          key={`cpu-${opponentId}`}
+          characterId={opponentId}
+          fighterId={OPPONENT_FIGHTER_ID}
+          control="cpu"
+          spawn={opponentSpawn}
+        />
+      ) : (
+        <>
+          <TrainingDummy
+            id={TRAINING_DUMMY_ID}
+            label="Dummy"
+            position={dummyPosition(opponentSpawn, 0, 0)}
+          />
+          <TrainingDummy
+            id={TRAINING_DUMMY_B_ID}
+            label="Dummy 2"
+            position={dummyPosition(opponentSpawn, 1.45, 0.35)}
+          />
+          <TrainingDummy
+            id={TRAINING_DUMMY_C_ID}
+            label="Dummy 3"
+            position={dummyPosition(opponentSpawn, -1.35, -0.25)}
+          />
+        </>
+      )}
     </Physics>
   );
 }
 
-export function GameCanvas() {
+function useSyncedMatchSetup(): boolean {
+  const params = useSearchParams();
   const dispatch = useAppDispatch();
   const selectedCharacter = useAppSelector((state) => state.game.selectedCharacter);
+  const matchMode = useAppSelector((state) => state.game.matchMode);
+  const arenaId = useAppSelector((state) => state.game.arenaId);
+  const requestedAlien = params.get("alien");
+  const alien = isCharacterId(requestedAlien) ? requestedAlien : selectedCharacter;
+  const mode = parseMatchMode(params.get("mode")) ?? matchMode;
+  const arena = parseArenaId(params.get("arena")) ?? arenaId;
+  const synced = alien === selectedCharacter && mode === matchMode && arena === arenaId;
+
+  useLayoutEffect(() => {
+    if (alien !== selectedCharacter) {
+      dispatch(setSelectedCharacter(alien));
+    }
+  }, [alien, dispatch, selectedCharacter]);
+
+  useLayoutEffect(() => {
+    if (mode !== matchMode) {
+      dispatch(setMatchMode(mode));
+    }
+  }, [dispatch, matchMode, mode]);
+
+  useLayoutEffect(() => {
+    if (arena !== arenaId) {
+      dispatch(setSelectedArena(arena));
+    }
+  }, [arena, arenaId, dispatch]);
+
+  return synced;
+}
+
+export function GameCanvas() {
+  const ready = useSyncedMatchSetup();
+  const dispatch = useAppDispatch();
+  const selectedCharacter = useAppSelector((state) => state.game.selectedCharacter);
+  const matchMode = useAppSelector((state) => state.game.matchMode);
+  const showDebugHud = useAppSelector((state) => state.game.showDebugHud);
 
   useEffect(() => {
     resetHitstop();
@@ -129,10 +216,46 @@ export function GameCanvas() {
     dispatch(resetCombat());
   }, [dispatch, selectedCharacter]);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (event.code === "Backquote") {
+        dispatch(toggleDebugHud());
+      }
+      if (event.code === "KeyH") {
+        dispatch(toggleShowHitboxes());
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [dispatch]);
+
+  if (!ready) {
+    return <div className="h-dvh w-full bg-[#8eb4d4]" />;
+  }
+
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-[#8eb4d4]">
+      <Link
+        href="/"
+        className="absolute top-3 left-3 z-10 rounded-full border border-white/15 bg-black/55 px-3 py-1.5 font-mono text-[11px] tracking-[0.18em] text-white uppercase"
+      >
+        Menu
+      </Link>
       <MatchHud />
-      <DebugHud />
+      {showDebugHud ? <DebugHud /> : null}
       <Canvas
         className="h-full w-full"
         shadows
@@ -150,7 +273,7 @@ export function GameCanvas() {
         <ImpactBursts />
         <HitLocationMarker />
         <Suspense fallback={null}>
-          <ArenaSession characterId={selectedCharacter} />
+          <ArenaSession characterId={selectedCharacter} mode={matchMode} />
         </Suspense>
       </Canvas>
     </div>

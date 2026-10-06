@@ -1,6 +1,10 @@
 import { cannonbolt } from "@/lib/game/characters/cannonbolt";
 import { fourArms } from "@/lib/game/characters/four-arms";
-import type { CharacterDefinition, CharacterId } from "@/lib/game/characters/types";
+import {
+  characterIds,
+  type CharacterDefinition,
+  type CharacterId,
+} from "@/lib/game/characters/types";
 
 export {
   characterIds,
@@ -36,4 +40,14 @@ export function controlHint(character: CharacterDefinition): { light: string; he
     light: character.moves.find((move) => move.slot === "light")?.slotLabel ?? "light",
     heavy: character.moves.find((move) => move.slot === "heavy")?.slotLabel ?? "heavy",
   };
+}
+
+export function isCharacterId(value: string | null): value is CharacterId {
+  return characterIds.some((id) => id === value);
+}
+
+/** The other playable alien. With two fighters this is the computer's body. */
+export function opponentOf(id: CharacterId): CharacterId {
+  const index = characterIds.indexOf(id);
+  return characterIds[(index + 1) % characterIds.length] ?? id;
 }
