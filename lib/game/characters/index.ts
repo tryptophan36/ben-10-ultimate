@@ -1,4 +1,5 @@
 import { cannonbolt } from "@/lib/game/characters/cannonbolt";
+import { diamondhead } from "@/lib/game/characters/diamondhead";
 import { fourArms } from "@/lib/game/characters/four-arms";
 import {
   characterIds,
@@ -33,6 +34,7 @@ export {
 export const characters: Record<CharacterId, CharacterDefinition> = {
   "four-arms": fourArms,
   cannonbolt,
+  diamondhead,
 };
 
 export function controlHint(character: CharacterDefinition): { light: string; heavy: string } {
@@ -46,7 +48,7 @@ export function isCharacterId(value: string | null): value is CharacterId {
   return characterIds.some((id) => id === value);
 }
 
-/** The other playable alien. With two fighters this is the computer's body. */
+/** The next alien in the roster. Versus-computer uses this body. */
 export function opponentOf(id: CharacterId): CharacterId {
   const index = characterIds.indexOf(id);
   return characterIds[(index + 1) % characterIds.length] ?? id;

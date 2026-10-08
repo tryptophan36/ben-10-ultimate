@@ -36,6 +36,9 @@ export function meleeHitboxes(characterId: string): ActiveHitbox[] {
   const merged = new Map<string, ActiveHitbox>();
 
   for (const attack of attacksForCharacter(characterId)) {
+    if (attack.kind !== "melee") {
+      continue;
+    }
     for (const hitbox of attack.hitboxes) {
       const existing = merged.get(hitbox.bone);
       if (existing) {

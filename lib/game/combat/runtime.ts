@@ -1,3 +1,4 @@
+import type { CameraShakeSpec } from "@/lib/game/camera/cameraShake";
 import { sameAnimationName } from "@/lib/game/animations";
 import { attackById, attackForAnimation, phaseForFrame } from "@/lib/game/combat/attacks";
 import { isHitstopActive } from "@/lib/game/combat/hitstop";
@@ -6,6 +7,7 @@ import {
   type AttackDefinition,
   type AttackPhase,
   type Damageable,
+  type Knockback,
 } from "@/lib/game/combat/types";
 import { PLAYER_FIGHTER_ID } from "@/lib/game/combat/fighters";
 import { PHYSICS_TIMESTEP } from "@/lib/game/physics";
@@ -81,6 +83,11 @@ export function publishClipClock(fighterId: string, name: string, time: number):
   clock.time = time;
 }
 
+export function readClipClock(fighterId: string): { name: string; time: number } {
+  const clock = clipState(fighterId);
+  return { name: clock.name, time: clock.time };
+}
+
 export function publishAttackerPose(
   fighterId: string,
   x: number,
@@ -119,6 +126,14 @@ export function getAttackHitsServerSnapshot(): number {
 }
 
 const hurtboxes = new Map<number, Damageable>();
+const combatResetListeners = new Set<() => void>();
+
+export function subscribeCombatReset(listener: () => void): () => void {
+  combatResetListeners.add(listener);
+  return () => {
+    combatResetListeners.delete(listener);
+  };
+}
 
 export function registerHurtbox(bodyHandle: number, target: Damageable): () => void {
   hurtboxes.set(bodyHandle, target);
@@ -127,6 +142,11 @@ export function registerHurtbox(bodyHandle: number, target: Damageable): () => v
       hurtboxes.delete(bodyHandle);
     }
   };
+}
+
+/** Fighter id registered on this rigid body, or null for the stage. */
+export function rigidBodyFighter(handle: number): string | null {
+  return hurtboxes.get(handle)?.id ?? null;
 }
 
 export function isHitboxLive(fighterId: string, attackIds: readonly string[]): boolean {
@@ -457,6 +477,59 @@ export function stepAttackClock(input: {
   };
 }
 
+export type ProjectileStrike = {
+  attackId: string;
+  serial: number;
+  damage: number;
+  knockback: Knockback;
+  hitstun: number;
+  hitstopMs: number;
+  cameraShake: CameraShakeSpec;
+  impactScale: number;
+  facingYaw: number;
+  attackerX: number;
+  attackerZ: number;
+};
+
+/**
+ * Damage from a projectile. Unlike a melee hitbox, this does not require the
+ * attacker's active window — the shard keeps its own payload after launch.
+ */
+export function tryProjectileHit(
+  fighterId: string,
+  bodyHandle: number,
+  hit: { x: number; y: number; z: number },
+  strike: ProjectileStrike,
+): boolean {
+  const target = hurtboxes.get(bodyHandle);
+  if (!target || target.id === fighterId) {
+    return false;
+  }
+
+  const connected = target.takeDamage({
+    amount: strike.damage,
+    knockback: strike.knockback,
+    hitstun: strike.hitstun,
+    attacker: fighterId,
+    attackId: strike.attackId,
+    attackSerial: strike.serial,
+    facingYaw: strike.facingYaw,
+    attackerX: strike.attackerX,
+    attackerZ: strike.attackerZ,
+    hitX: hit.x,
+    hitY: hit.y,
+    hitZ: hit.z,
+    hitstopMs: strike.hitstopMs,
+    cameraShake: strike.cameraShake,
+    impactScale: strike.impactScale,
+    knockbackStyle: "facing",
+  });
+  if (connected && fighterId === PLAYER_FIGHTER_ID) {
+    setTargetsHit(targetsHit + 1);
+  }
+  return connected;
+}
+
 export function tryHit(
   fighterId: string,
   bodyHandle: number,
@@ -510,4 +583,7 @@ export function resetCombatRuntime(): void {
   clipClocks.clear();
   hurtboxes.clear();
   setTargetsHit(0);
+  for (const listener of combatResetListeners) {
+    listener();
+  }
 }

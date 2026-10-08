@@ -14,4 +14,9 @@ export const rosterCopy: Record<
     summary: "Curls into a ball and rolls through the fight.",
     accent: "#f5c542",
   },
+  diamondhead: {
+    species: "Petrosapien",
+    summary: "Grows crystal over his fist, then fires a shard downrange.",
+    accent: "#7dffe0",
+  },
 };

@@ -60,6 +60,25 @@ export type MeleeHitbox = {
   offset?: readonly [number, number, number];
 };
 
+export type BoneAxis = "x" | "y" | "z";
+
+/**
+ * A straight projectile fired from a bone. Position and direction are read
+ * from that bone when `time` is reached. The shard is not a melee hitbox.
+ */
+export type ProjectileLaunch = {
+  bone: string;
+  axis: BoneAxis;
+  /** Seconds into the attack clip. */
+  time: number;
+  /** Meters along the bone axis, so the shard clears the hand. */
+  advance: number;
+  speed: number;
+  radius: number;
+  /** Seconds in the air if it hits nothing. */
+  lifetime: number;
+};
+
 /** Clip seconds. Visual only — never used to detect a landing. */
 export type PoseWindow = {
   start: number;
@@ -79,14 +98,14 @@ export type AttackPose = {
 };
 
 /**
- * Data for one melee attack. Frame counts are physics steps (60 Hz).
+ * Data for one attack. Frame counts are physics steps (60 Hz).
  * Later moves (projectiles, grabs, blocks) can sit beside this type
  * without changing how damage or phases are applied.
  */
 export type AttackDefinition = {
   id: string;
   characterId: string;
-  kind: "melee";
+  kind: "melee" | "projectile";
   /** Which button starts this move. Several light moves alternate. */
   slot: MoveSlot;
   /** Debug HUD label for that button. The first move in the slot is shown. */
@@ -109,6 +128,10 @@ export type AttackDefinition = {
   interruptible: boolean;
   multiHit: boolean;
   hitboxes: MeleeHitbox[];
+  /** Present for projectile moves. Melee moves omit it. */
+  projectile?: ProjectileLaunch;
+  /** Cut onto this clip instead of crossfading, so the frame windows stay put. */
+  cutIn?: boolean;
   /**
    * clip follows the attack animation from frame 0.
    * elapsed counts physics frames from the moment the attack starts, so a

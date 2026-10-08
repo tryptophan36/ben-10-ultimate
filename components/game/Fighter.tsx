@@ -14,6 +14,7 @@ import {
 import { Group, Mesh, type AnimationClip, type Object3D } from "three";
 import { clone as cloneSkinnedScene } from "three/addons/utils/SkeletonUtils.js";
 import { AttackHitboxes } from "@/components/game/combat/AttackHitboxes";
+import { AttackProjectiles } from "@/components/game/combat/AttackProjectiles";
 import {
   useAnimationController,
   type AnimationLibrary,
@@ -371,6 +372,14 @@ export function Fighter({
           visualRef={visualRef}
         />
       ))}
+      {scenes[0] ? (
+        <AttackProjectiles
+          characterId={character.id}
+          fighterId={fighterId}
+          model={scenes[0]}
+          visualRef={visualRef}
+        />
+      ) : null}
     </>
   );
 }

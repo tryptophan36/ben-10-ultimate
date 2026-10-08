@@ -62,6 +62,11 @@ type AnimationControllerInput = {
   onOneShotFinished?: (clipName: string) => string | null;
 };
 
+function cutsIn(name: string): boolean {
+  const attack = attackForAnimation(name);
+  return Boolean(attack?.pose || attack?.cutIn);
+}
+
 function findAction(
   libraries: readonly AnimationLibrary[],
   name: string,
@@ -121,7 +126,7 @@ export function useAnimationController({
       }
       appliedEpochRef.current = epoch;
       const previous = activeActionRef.current;
-      const snap = Boolean(attackForAnimation(name)?.pose);
+      const snap = cutsIn(name);
       startClip(action, previous, isLoopingAnimation(clips, name), snap);
       activeActionRef.current = action;
     },
@@ -202,7 +207,7 @@ export function useAnimationController({
     }
 
     const previous = activeActionRef.current;
-    const snap = Boolean(attackForAnimation(currentAnimation)?.pose);
+    const snap = cutsIn(currentAnimation);
     startClip(action, previous, isLoopingAnimation(clips, currentAnimation), snap);
     activeActionRef.current = action;
   }, [animationEpoch, clips, currentAnimation, libraries, local]);

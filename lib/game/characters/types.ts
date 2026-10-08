@@ -2,7 +2,7 @@ import type { AnimationAction, Object3D } from "three";
 import type { AttackDefinition, AttackPhase } from "@/lib/game/combat/types";
 import type { LocomotionConfig } from "@/lib/game/locomotion";
 
-export const characterIds = ["four-arms", "cannonbolt"] as const;
+export const characterIds = ["four-arms", "cannonbolt", "diamondhead"] as const;
 
 export type CharacterId = (typeof characterIds)[number];
 
