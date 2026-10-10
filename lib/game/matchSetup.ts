@@ -1,3 +1,4 @@
+import { DESERT_ARENA_URL, HAVANA_ARENA_URL } from "@/lib/game/arena/desert";
 import type { CharacterId } from "@/lib/game/characters/types";
 
 export const matchModes = [
@@ -20,10 +21,22 @@ export const arenas = [
     id: "desert",
     name: "Desert Arena",
     summary: "Open sand under a hard sun. Two spawns across the dune.",
+    modelPath: DESERT_ARENA_URL,
+  },
+  {
+    id: "havana",
+    name: "Havana Street",
+    summary: "A closed city block. Buildings and walls around the street.",
+    modelPath: HAVANA_ARENA_URL,
   },
 ] as const;
 
 export type ArenaId = (typeof arenas)[number]["id"];
+
+export function arenaById(id: ArenaId) {
+  const arena = arenas.find((entry) => entry.id === id);
+  return arena ?? arenas[0];
+}
 
 export function parseMatchMode(value: string | null): MatchMode | null {
   return matchModes.some((mode) => mode.id === value) ? (value as MatchMode) : null;

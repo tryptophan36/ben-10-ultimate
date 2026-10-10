@@ -18,6 +18,11 @@ const steps = [
 
 type MenuStep = (typeof steps)[number]["id"];
 
+const arenaSwatch: Record<ArenaId, string> = {
+  desert: "bg-gradient-to-b from-[#f0d7a2] via-[#d3924e] to-[#7a4a28]",
+  havana: "bg-gradient-to-b from-[#7eb6d6] via-[#efe6d6] to-[#3e5344]",
+};
+
 function Chevron({ direction }: { direction: "left" | "right" }) {
   return (
     <svg viewBox="0 0 20 20" className="h-5 w-5" aria-hidden="true">
@@ -282,8 +287,12 @@ export function HomeMenu() {
                   summary={arena.summary}
                   onSelect={() => setArenaId(arena.id)}
                   swatch={
-                    <div className="mb-3 h-16 overflow-hidden rounded-xl bg-gradient-to-b from-[#f0d7a2] via-[#d3924e] to-[#7a4a28]">
-                      <div className="h-full w-full bg-[radial-gradient(ellipse_at_bottom,#c9843f_0%,transparent_70%)]" />
+                    <div
+                      className={`mb-3 h-16 overflow-hidden rounded-xl ${arenaSwatch[arena.id]}`}
+                    >
+                      {arena.id === "desert" ? (
+                        <div className="h-full w-full bg-[radial-gradient(ellipse_at_bottom,#c9843f_0%,transparent_70%)]" />
+                      ) : null}
                     </div>
                   }
                 />

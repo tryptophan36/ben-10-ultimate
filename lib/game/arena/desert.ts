@@ -1,6 +1,7 @@
 import { Mesh, Quaternion, Vector3, type Object3D } from "three";
 
 export const DESERT_ARENA_URL = "/model/world/desert-arena.glb";
+export const HAVANA_ARENA_URL = "/model/world/havana-street.glb";
 
 const COLLIDER_PREFIX = "COL_";
 const SPAWN_PLAYER_1 = "Spawn_Player1";
@@ -152,6 +153,7 @@ function readSpawn(object: Object3D): ArenaSpawnPoint {
   };
 }
 
+/** Read COL_* cuboids and player spawns. Shared by every arena GLB. */
 export function readDesertArena(scene: Object3D): DesertArenaLayout {
   scene.updateMatrixWorld(true);
 
@@ -174,7 +176,7 @@ export function readDesertArena(scene: Object3D): DesertArenaLayout {
   const player1 = spawns.get(SPAWN_PLAYER_1);
   const player2 = spawns.get(SPAWN_PLAYER_2);
   if (!player1 || !player2) {
-    throw new Error("Desert arena is missing Spawn_Player1 or Spawn_Player2");
+    throw new Error("Arena is missing Spawn_Player1 or Spawn_Player2");
   }
 
   colliders.sort((a, b) => a.name.localeCompare(b.name));

@@ -2,8 +2,8 @@ import { Mesh, MeshStandardMaterial, type Material } from "three";
 import type { CharacterVisual } from "@/lib/game/characters/types";
 import { CANNONBOLT_CLIPS } from "@/lib/game/characters/cannonbolt/form";
 
-/** CB_Curl is 0.48s. Slowing it gives the tuck time to read before the ball appears. */
-const CURL_TIME_SCALE = 0.6;
+/** CB_Curl is 0.48s. Faster than authored so the tuck does not hold him in place. */
+const CURL_TIME_SCALE = 1.5;
 /** Ball mesh radius in the GLB, after the node offset that sits it on y = 0. */
 const BALL_RADIUS = 1;
 

@@ -13,7 +13,7 @@ import { HitstopSim } from "@/components/game/combat/HitstopSim";
 import { ImpactBursts } from "@/components/game/combat/ImpactBursts";
 import { TrainingDummy, trainingDummyHeight } from "@/components/game/combat/TrainingDummy";
 import { DebugHud } from "@/components/game/DebugHud";
-import { DesertArena, useDesertArena } from "@/components/game/DesertArena";
+import { ArenaStage, useArena } from "@/components/game/DesertArena";
 import { Fighter } from "@/components/game/Fighter";
 import { MatchHud } from "@/components/game/MatchHud";
 import { resetCameraShake } from "@/lib/game/camera/cameraShake";
@@ -43,7 +43,12 @@ import {
   toggleDebugHud,
 } from "@/store/slices/gameSlice";
 import type { ArenaSpawnPoint } from "@/lib/game/arena/desert";
-import { parseArenaId, parseMatchMode, type MatchMode } from "@/lib/game/matchSetup";
+import {
+  arenaById,
+  parseArenaId,
+  parseMatchMode,
+  type MatchMode,
+} from "@/lib/game/matchSetup";
 
 function Lighting() {
   return (
@@ -87,11 +92,15 @@ function dummyPosition(
 function ArenaSession({
   characterId,
   mode,
+  modelPath,
+  arenaName,
 }: {
   characterId: CharacterId;
   mode: MatchMode;
+  modelPath: string;
+  arenaName: string;
 }) {
-  const arena = useDesertArena();
+  const arena = useArena(modelPath);
   const playerSpawn = arena.spawns.player1;
   const opponentSpawn = arena.spawns.player2;
   const opponentId = opponentOf(characterId);
@@ -111,7 +120,7 @@ function ArenaSession({
         initialYaw={playerSpawn.yaw + 0.55}
         initialFocus={playerSpawn.position}
       />
-      <DesertArena arena={arena} />
+      <ArenaStage arena={arena} name={arenaName} />
       <Fighter
         key={characterId}
         characterId={characterId}
@@ -188,7 +197,9 @@ export function GameCanvas() {
   const dispatch = useAppDispatch();
   const selectedCharacter = useAppSelector((state) => state.game.selectedCharacter);
   const matchMode = useAppSelector((state) => state.game.matchMode);
+  const arenaId = useAppSelector((state) => state.game.arenaId);
   const showDebugHud = useAppSelector((state) => state.game.showDebugHud);
+  const selectedArena = arenaById(arenaId);
 
   useEffect(() => {
     resetHitstop();
@@ -214,7 +225,7 @@ export function GameCanvas() {
   useEffect(() => {
     resetMatchFlags();
     dispatch(resetCombat());
-  }, [dispatch, selectedCharacter]);
+  }, [arenaId, dispatch, selectedCharacter]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -273,7 +284,13 @@ export function GameCanvas() {
         <ImpactBursts />
         <HitLocationMarker />
         <Suspense fallback={null}>
-          <ArenaSession characterId={selectedCharacter} mode={matchMode} />
+          <ArenaSession
+            key={selectedArena.id}
+            characterId={selectedCharacter}
+            mode={matchMode}
+            modelPath={selectedArena.modelPath}
+            arenaName={selectedArena.id}
+          />
         </Suspense>
       </Canvas>
     </div>
